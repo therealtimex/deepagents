@@ -96,7 +96,7 @@ def _agent_builder(
         )
     all_tools = built_in_tools + list(tools) + [task_tool]
 
-    print("all_tools",all_tools)
+    print("prompt",prompt)
 
     return create_react_agent(
         name=name,
