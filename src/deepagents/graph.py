@@ -111,7 +111,7 @@ def _agent_builder(
 def create_deep_agent(
     name: str,
     tools: Sequence[Union[BaseTool, Callable, dict[str, Any]]],
-    instructions: str,
+    prompt: str,
     model: Optional[Union[str, LanguageModelLike]] = None,
     subagents: list[SubAgent | CustomSubAgent] = None,
     state_schema: Optional[StateSchemaType] = None,
@@ -149,7 +149,7 @@ def create_deep_agent(
     return _agent_builder(
         name=name,
         tools=tools,
-        instructions=instructions,
+        instructions=prompt,
         model=model,
         subagents=subagents,
         state_schema=state_schema,
@@ -165,7 +165,7 @@ def create_deep_agent(
 def async_create_deep_agent(
     name: str,
     tools: Sequence[Union[BaseTool, Callable, dict[str, Any]]],
-    instructions: str,
+    prompt: str,
     model: Optional[Union[str, LanguageModelLike]] = None,
     subagents: list[SubAgent | CustomSubAgent] = None,
     state_schema: Optional[StateSchemaType] = None,
@@ -203,7 +203,7 @@ def async_create_deep_agent(
     return _agent_builder(
         name=name,
         tools=tools,
-        instructions=instructions,
+        instructions=prompt,
         model=model,
         subagents=subagents,
         state_schema=state_schema,
