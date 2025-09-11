@@ -96,6 +96,8 @@ def _agent_builder(
         )
     all_tools = built_in_tools + list(tools) + [task_tool]
 
+    print("all_tools",all_tools)
+
     return create_react_agent(
         name,
         model,
