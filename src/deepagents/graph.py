@@ -99,8 +99,8 @@ def _agent_builder(
     print("all_tools",all_tools)
 
     return create_react_agent(
-        name,
-        model,
+        name=name,
+        model=model,
         prompt=prompt,
         tools=all_tools,
         state_schema=state_schema,
