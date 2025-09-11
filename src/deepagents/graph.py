@@ -31,7 +31,7 @@ It is critical that you mark todos as completed as soon as you are done with a t
 
 
 def _agent_builder(
-    name=name,
+    name: str,
     tools: Sequence[Union[BaseTool, Callable, dict[str, Any]]],
     instructions: str,
     model: Optional[Union[str, LanguageModelLike]] = None,
