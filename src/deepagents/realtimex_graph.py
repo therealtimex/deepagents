@@ -31,6 +31,7 @@ It is critical that you mark todos as completed as soon as you are done with a t
 
 
 def _agent_builder(
+    name: str,
     tools: Sequence[Union[BaseTool, Callable, dict[str, Any]]],
     instructions: str,
     model: Optional[Union[str, LanguageModelLike]] = None,
@@ -95,8 +96,10 @@ def _agent_builder(
         )
     all_tools = built_in_tools + list(tools) + [task_tool]
 
+
     return create_react_agent(
-        model,
+        name=name,
+        model=model,
         prompt=prompt,
         tools=all_tools,
         state_schema=state_schema,
@@ -106,9 +109,10 @@ def _agent_builder(
     )
 
 
-def create_deep_agent(
+def create_realtimex_deep_agent(
+    name: str,
     tools: Sequence[Union[BaseTool, Callable, dict[str, Any]]],
-    instructions: str,
+    prompt: str,
     model: Optional[Union[str, LanguageModelLike]] = None,
     subagents: list[SubAgent | CustomSubAgent] = None,
     state_schema: Optional[StateSchemaType] = None,
@@ -144,8 +148,9 @@ def create_deep_agent(
         checkpointer: Optional checkpointer for persisting agent state between runs.
     """
     return _agent_builder(
+        name=name,
         tools=tools,
-        instructions=instructions,
+        instructions=prompt,
         model=model,
         subagents=subagents,
         state_schema=state_schema,
@@ -158,9 +163,10 @@ def create_deep_agent(
     )
 
 
-def async_create_deep_agent(
+def async_create_realtimex_deep_agent(
+    name: str,
     tools: Sequence[Union[BaseTool, Callable, dict[str, Any]]],
-    instructions: str,
+    prompt: str,
     model: Optional[Union[str, LanguageModelLike]] = None,
     subagents: list[SubAgent | CustomSubAgent] = None,
     state_schema: Optional[StateSchemaType] = None,
@@ -196,8 +202,9 @@ def async_create_deep_agent(
         checkpointer: Optional checkpointer for persisting agent state between runs.
     """
     return _agent_builder(
+        name=name,
         tools=tools,
-        instructions=instructions,
+        instructions=prompt,
         model=model,
         subagents=subagents,
         state_schema=state_schema,

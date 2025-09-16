@@ -1,3 +1,5 @@
+from deepagents.realtimex_graph import create_realtimex_deep_agent, async_create_realtimex_deep_agent
+
 from deepagents.graph import create_deep_agent, async_create_deep_agent
 from deepagents.interrupt import ToolInterruptConfig
 from deepagents.state import DeepAgentState
