@@ -84,7 +84,7 @@ def _agent_builder(
             state_schema,
             selected_post_model_hook,
         )
-        if main_agent_tools is not None:
+    if main_agent_tools is not None:
         passed_in_tools = []
         for tool_ in tools:
             if not isinstance(tool_, BaseTool):
