@@ -62,7 +62,7 @@ def agent_builder(
 def create_realtimex_deep_agent(
     name: str,
     tools: Sequence[Union[BaseTool, Callable, dict[str, Any]]] = [],
-    prompt: str,
+    prompt: str = "",
     middleware: Optional[list[AgentMiddleware]] = None,
     model: Optional[Union[str, LanguageModelLike]] = None,
     subagents: Optional[list[SubAgent | CustomSubAgent]] = None,
