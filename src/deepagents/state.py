@@ -1,4 +1,4 @@
-from langchain.agents.middleware import AgentState
+from langgraph.prebuilt.chat_agent_executor import AgentState
 from typing import NotRequired, Annotated
 from typing import Literal
 from typing_extensions import TypedDict
@@ -22,12 +22,4 @@ def file_reducer(l, r):
 
 class DeepAgentState(AgentState):
     todos: NotRequired[list[Todo]]
-    files: Annotated[NotRequired[dict[str, str]], file_reducer]
-
-
-class PlanningState(AgentState):
-    todos: NotRequired[list[Todo]]
-
-
-class FilesystemState(AgentState):
     files: Annotated[NotRequired[dict[str, str]], file_reducer]
