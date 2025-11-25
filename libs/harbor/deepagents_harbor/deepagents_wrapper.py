@@ -24,6 +24,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 
 from deepagents_harbor.backend import HarborSandboxFallback
+from deepagents_harbor.tracing import create_example_id_from_instruction
 
 
 class DeepAgentsWrapper(BaseAgent):
@@ -36,7 +37,6 @@ class DeepAgentsWrapper(BaseAgent):
         self,
         logs_dir: Path,
         model_name: str | None = None,
-        max_iterations: int = 50,
         temperature: float = 0.0,
         verbose: bool = True,
         *args,
@@ -50,7 +50,6 @@ class DeepAgentsWrapper(BaseAgent):
             model_name = "anthropic:claude-sonnet-4-5-20250929"
 
         self._model_name = model_name
-        self._max_iterations = max_iterations
         self._temperature = temperature
         self._verbose = verbose
         self._model = init_chat_model(model_name, temperature=temperature)
@@ -97,16 +96,29 @@ class DeepAgentsWrapper(BaseAgent):
         backend = HarborSandboxFallback(environment)
         deep_agent = create_deep_agent(model=self._model, backend=backend)
 
+        # Build metadata with experiment tracking info
+        metadata = {
+            "task_instruction": instruction,
+            "model": self._model_name,
+            # This is a harbor-specific session ID for the entire task run
+            # It's different from the LangSmith experiment ID (called session_id)
+            "harbor_session_id": environment.session_id,
+            "job_id": job_id,
+        }
+
+        # Add LangSmith experiment tracking metadata if available
+        if self._experiment_session_id:
+            # Experiment session ID for langsmith integration
+            metadata["session_id"] = self._experiment_session_id
+            # Compute example_id from instruction for deterministic linking
+            # This uses the same hashing as create_langsmith_dataset.py
+            example_id = create_example_id_from_instruction(instruction)
+            metadata["reference_example_id"] = example_id
+
         config: RunnableConfig = {
             "run_name": f"harbor-deepagent-{environment.session_id}",
             "tags": [self._model_name, environment.session_id],
-            "metadata": {
-                "task_instruction": instruction,
-                "model": self._model_name,
-                "session_id": environment.session_id,
-                "job_id": job_id,
-            },
-            "recursion_limit": self._max_iterations,
+            "metadata": metadata,
             "configurable": {
                 "thread_id": str(uuid.uuid4()),
             },
