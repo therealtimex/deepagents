@@ -91,16 +91,20 @@ class DeepAgentsWrapper(BaseAgent):
         total_prompt_tokens = 0
         total_completion_tokens = 0
 
+        configuration = json.loads(environment.trial_paths.config_path.read_text())
+        job_id = configuration["job_id"]
+
         backend = HarborSandboxFallback(environment)
         deep_agent = create_deep_agent(model=self._model, backend=backend)
 
         config: RunnableConfig = {
             "run_name": f"harbor-deepagent-{environment.session_id}",
-            "tags": ["harbor", "deepagent", self._model_name, environment.session_id],
+            "tags": [self._model_name, environment.session_id],
             "metadata": {
                 "task_instruction": instruction,
                 "model": self._model_name,
                 "session_id": environment.session_id,
+                "job_id": job_id,
             },
             "recursion_limit": self._max_iterations,
             "configurable": {
@@ -207,12 +211,17 @@ class DeepAgentsWrapper(BaseAgent):
             steps.append(pending_step)
 
         # Build and save trajectory
-        final_metrics = FinalMetrics(
+        metrics = FinalMetrics(
             total_prompt_tokens=total_prompt_tokens or None,
             total_completion_tokens=total_completion_tokens or None,
             total_steps=len(steps),
         )
+        self._save_trajectory(environment, steps, metrics)
 
+    def _save_trajectory(
+        self, environment: BaseEnvironment, steps: list[Step], metrics: FinalMetrics
+    ) -> None:
+        """Save current trajectory to logs directory."""
         trajectory = Trajectory(
             schema_version="ATIF-v1.2",
             session_id=environment.session_id,
@@ -226,8 +235,7 @@ class DeepAgentsWrapper(BaseAgent):
                 },
             ),
             steps=steps,
-            final_metrics=final_metrics,
+            final_metrics=metrics,
         )
-
         trajectory_path = self.logs_dir / "trajectory.json"
         trajectory_path.write_text(json.dumps(trajectory.to_json_dict(), indent=2))
