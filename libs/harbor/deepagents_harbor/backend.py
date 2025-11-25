@@ -1,4 +1,4 @@
-"""Harbor-specific tools for DeepAgents to interact with the environment."""
+"""Implement harbor backend."""
 
 import asyncio
 import base64

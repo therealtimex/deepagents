@@ -1,4 +1,4 @@
-"""Harbor agent implementation using LangChain DeepAgents."""
+"""A wrapper for DeepAgents to run in Harbor environments."""
 
 import json
 import uuid
@@ -23,7 +23,7 @@ from langchain.messages import UsageMetadata
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 
-from deepagents_harbor.agents.backend import HarborSandboxFallback
+from deepagents_harbor.backend import HarborSandboxFallback
 
 
 class DeepAgentsWrapper(BaseAgent):
