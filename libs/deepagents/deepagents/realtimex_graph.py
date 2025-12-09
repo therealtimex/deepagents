@@ -42,6 +42,7 @@ def create_realtimex_deep_agent(
     tools: Sequence[BaseTool | Callable | dict[str, Any]] | None = None,
     *,
     system_prompt: str | None = None,
+    prompt: str | None = None,
     middleware: Sequence[AgentMiddleware] = (),
     subagents: list[SubAgent | CompiledSubAgent] | None = None,
     response_format: ResponseFormat | None = None,
@@ -88,6 +89,7 @@ def create_realtimex_deep_agent(
             use a backend that implements SandboxBackendProtocol.
         interrupt_on: Optional Dict[str, bool | InterruptOnConfig] mapping tool names to
             interrupt configs.
+        prompt: Alias for system_prompt for backward compatibility.
         debug: Whether to enable debug mode. Passed through to create_agent.
         name: The name of the agent. Passed through to create_agent.
         cache: The cache to use for the agent. Passed through to create_agent.
@@ -97,6 +99,9 @@ def create_realtimex_deep_agent(
     """
     if model is None:
         model = get_default_model()
+
+    # RealTimeX wrappers previously passed `prompt`; keep accepting it for compatibility.
+    system_prompt = system_prompt if system_prompt is not None else prompt
 
     if (
         model.profile is not None
