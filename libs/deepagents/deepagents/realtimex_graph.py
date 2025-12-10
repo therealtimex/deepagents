@@ -21,6 +21,8 @@ from deepagents.backends.protocol import BackendFactory, BackendProtocol
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgent, SubAgentMiddleware
+from deepagents.realtimex_middleware.agent_memory import AgentMemoryMiddleware
+from deepagents.realtimex_middleware.skills.middleware import SkillsMiddleware
 
 BASE_AGENT_PROMPT = "In order to complete the objective that the user asks of you, you have access to a number of standard tools."
 
@@ -54,6 +56,13 @@ def create_realtimex_deep_agent(
     debug: bool = False,
     name: str | None = None,
     cache: BaseCache | None = None,
+    assistant_id: str = "agent",
+    enable_memory: bool = False,
+    global_agent_path: str | None = None,
+    workspace_agent_path: str | None = None,
+    enable_skills: bool = False,
+    global_skills_dir: str | None = None,
+    workspace_skills_dir: str | None = None,
 ) -> CompiledStateGraph:
     """Create a deep agent.
 
@@ -93,10 +102,17 @@ def create_realtimex_deep_agent(
         debug: Whether to enable debug mode. Passed through to create_agent.
         name: The name of the agent. Passed through to create_agent.
         cache: The cache to use for the agent. Passed through to create_agent.
+        assistant_id: Agent identifier used for display in prompts (default: "agent").
+        enable_memory: Enable long-term memory injection from agent.md files.
+        global_agent_path: Path to global agent.md (required if enable_memory is True). Maps to your global root (e.g., ~/.realtimex/Resources/agent-skills/global/{agent_uuid}/agent.md).
+        workspace_agent_path: Optional workspace/project agent.md path (e.g., ~/.realtimex/Resources/agent-skills/{workspace_slug}/{agent_uuid}/agent.md).
+        enable_skills: Enable agent skills middleware (progressive disclosure of SKILL.md).
+        global_skills_dir: Global skills directory (required if enable_skills is True). Typically alongside global agent.md.
+        workspace_skills_dir: Optional workspace/project skills directory. Workspace skills override global skills when names conflict.
 
     Returns:
         A configured deep agent.
-    """
+    """  # noqa: E501
     if model is None:
         model = get_default_model()
 
@@ -115,9 +131,34 @@ def create_realtimex_deep_agent(
         trigger = ("tokens", 170000)
         keep = ("messages", 6)
 
+    memory_middleware: list[AgentMiddleware] = []
+    if enable_memory:
+        if global_agent_path is None:
+            raise ValueError("global_agent_path must be provided when enable_memory is True.")  # noqa: EM101, TRY003
+        memory_middleware.append(
+            AgentMemoryMiddleware(
+                global_agent_path=global_agent_path,
+                workspace_agent_path=workspace_agent_path,
+            )
+        )
+
+    skills_middleware: list[AgentMiddleware] = []
+    if enable_skills:
+        if global_skills_dir is None:
+            raise ValueError("global_skills_dir must be provided when enable_skills is True.")  # noqa: EM101, TRY003
+        skills_middleware.append(
+            SkillsMiddleware(
+                skills_dir=global_skills_dir,
+                assistant_id=assistant_id,
+                project_skills_dir=workspace_skills_dir,
+            )
+        )
+
     deepagent_middleware = [
         TodoListMiddleware(),
         FilesystemMiddleware(backend=backend),
+        *memory_middleware,
+        *skills_middleware,
         SubAgentMiddleware(
             default_model=model,
             default_tools=tools,
