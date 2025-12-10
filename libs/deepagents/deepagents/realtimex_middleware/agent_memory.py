@@ -172,14 +172,21 @@ class AgentMemoryMiddleware(AgentMiddleware):
     def __init__(
         self,
         *,
-        global_agent_path: str,
+        global_agent_path: str | None = None,
         workspace_agent_path: str | None = None,
         system_prompt_template: str | None = None,
     ) -> None:
-        self.user_agent_md = Path(global_agent_path).expanduser()
-        self.user_agent_dir = self.user_agent_md.parent
-        self.agent_dir_display = str(self.user_agent_dir)
-        self.agent_dir_absolute = str(self.user_agent_dir)
+        # Handle optional global agent path
+        if global_agent_path:
+            self.user_agent_md = Path(global_agent_path).expanduser()
+            self.user_agent_dir = self.user_agent_md.parent
+            self.agent_dir_display = str(self.user_agent_dir)
+            self.agent_dir_absolute = str(self.user_agent_dir)
+        else:
+            self.user_agent_md = None
+            self.user_agent_dir = None
+            self.agent_dir_display = "(not configured)"
+            self.agent_dir_absolute = "(not configured)"
 
         self.project_agent_path = Path(workspace_agent_path).expanduser() if workspace_agent_path else None
         self.project_deepagents_dir = (
@@ -201,7 +208,7 @@ class AgentMemoryMiddleware(AgentMiddleware):
         """Load agent memory from file before agent execution."""
         result: AgentMemoryStateUpdate = {}
 
-        if "user_memory" not in state and self.user_agent_md.exists():
+        if "user_memory" not in state and self.user_agent_md and self.user_agent_md.exists():
             with contextlib.suppress(OSError, UnicodeDecodeError):
                 result["user_memory"] = self.user_agent_md.read_text()
 

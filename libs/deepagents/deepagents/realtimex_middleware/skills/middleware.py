@@ -123,41 +123,48 @@ class SkillsMiddleware(AgentMiddleware):
     def __init__(
         self,
         *,
-        skills_dir: str | Path,
+        skills_dir: str | Path | None = None,
         assistant_id: str,
         project_skills_dir: str | Path | None = None,
     ) -> None:
         """Initialize the skills middleware.
 
         Args:
-            skills_dir: Path to the user-level skills directory.
+            skills_dir: Path to the user-level (global) skills directory. Optional if project_skills_dir is provided.
             assistant_id: The agent identifier.
-            project_skills_dir: Optional path to the project-level skills directory.
+            project_skills_dir: Path to the project-level skills directory. Optional if skills_dir is provided.
         """
-        self.skills_dir = Path(skills_dir).expanduser()
+        self.skills_dir = Path(skills_dir).expanduser() if skills_dir else None
         self.assistant_id = assistant_id
         self.project_skills_dir = (
             Path(project_skills_dir).expanduser() if project_skills_dir else None
         )
         # Store display paths for prompts (adapted to provided skills root)
-        self.user_skills_display = str(self.skills_dir)
+        self.user_skills_display = str(self.skills_dir) if self.skills_dir else None
         self.system_prompt_template = SKILLS_SYSTEM_PROMPT
 
     def _format_skills_locations(self) -> str:
         """Format skills locations for display in system prompt."""
-        locations = [f"**User Skills**: `{self.user_skills_display}`"]
+        locations = []
+        if self.user_skills_display:
+            locations.append(f"**User Skills**: `{self.user_skills_display}`")
         if self.project_skills_dir:
+            override_note = " (overrides user skills)" if self.user_skills_display else ""
             locations.append(
-                f"**Project Skills**: `{self.project_skills_dir}` (overrides user skills)"
+                f"**Project Skills**: `{self.project_skills_dir}`{override_note}"
             )
         return "\n".join(locations)
 
     def _format_skills_list(self, skills: list[SkillMetadata]) -> str:
         """Format skills metadata for display in system prompt."""
         if not skills:
-            locations = [f"{self.user_skills_display}/"]
+            locations = []
+            if self.user_skills_display:
+                locations.append(f"{self.user_skills_display}/")
             if self.project_skills_dir:
                 locations.append(f"{self.project_skills_dir}/")
+            if not locations:
+                return "(No skills directories configured.)"
             return f"(No skills available yet. You can create skills in {' or '.join(locations)})"
 
         # Group skills by source

@@ -104,11 +104,11 @@ def create_realtimex_deep_agent(
         cache: The cache to use for the agent. Passed through to create_agent.
         assistant_id: Agent identifier used for display in prompts (default: "agent").
         enable_memory: Enable long-term memory injection from agent.md files.
-        global_agent_path: Path to global agent.md (required if enable_memory is True). Maps to your global root (e.g., ~/.realtimex/Resources/agent-skills/global/{agent_uuid}/agent.md).
-        workspace_agent_path: Optional workspace/project agent.md path (e.g., ~/.realtimex/Resources/agent-skills/{workspace_slug}/{agent_uuid}/agent.md).
+        global_agent_path: Path to global agent.md. At least one of global_agent_path or workspace_agent_path is required if enable_memory is True.
+        workspace_agent_path: Workspace/project agent.md path. At least one of global_agent_path or workspace_agent_path is required if enable_memory is True.
         enable_skills: Enable agent skills middleware (progressive disclosure of SKILL.md).
-        global_skills_dir: Global skills directory (required if enable_skills is True). Typically alongside global agent.md.
-        workspace_skills_dir: Optional workspace/project skills directory. Workspace skills override global skills when names conflict.
+        global_skills_dir: Global skills directory. At least one of global_skills_dir or workspace_skills_dir is required if enable_skills is True.
+        workspace_skills_dir: Workspace/project skills directory. At least one of global_skills_dir or workspace_skills_dir is required if enable_skills is True. Workspace skills override global skills when names conflict.
 
     Returns:
         A configured deep agent.
@@ -133,8 +133,8 @@ def create_realtimex_deep_agent(
 
     memory_middleware: list[AgentMiddleware] = []
     if enable_memory:
-        if global_agent_path is None:
-            raise ValueError("global_agent_path must be provided when enable_memory is True.")  # noqa: EM101, TRY003
+        if global_agent_path is None and workspace_agent_path is None:
+            raise ValueError("At least one of global_agent_path or workspace_agent_path must be provided when enable_memory is True.")  # noqa: EM101, TRY003
         memory_middleware.append(
             AgentMemoryMiddleware(
                 global_agent_path=global_agent_path,
@@ -144,8 +144,8 @@ def create_realtimex_deep_agent(
 
     skills_middleware: list[AgentMiddleware] = []
     if enable_skills:
-        if global_skills_dir is None:
-            raise ValueError("global_skills_dir must be provided when enable_skills is True.")  # noqa: EM101, TRY003
+        if global_skills_dir is None and workspace_skills_dir is None:
+            raise ValueError("At least one of global_skills_dir or workspace_skills_dir must be provided when enable_skills is True.")  # noqa: EM101, TRY003
         skills_middleware.append(
             SkillsMiddleware(
                 skills_dir=global_skills_dir,
