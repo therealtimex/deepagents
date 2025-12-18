@@ -144,13 +144,15 @@ def create_realtimex_deep_agent(
 
     skills_middleware: list[AgentMiddleware] = []
     if enable_skills:
-        if global_skills_dir is None and workspace_skills_dir is None:
+        if not global_skills_dir and not workspace_skills_dir:
             raise ValueError("At least one of global_skills_dir or workspace_skills_dir must be provided when enable_skills is True.")  # noqa: EM101, TRY003
+        skills_backend = backend  # may be BackendProtocol or factory; middleware resolves
         skills_middleware.append(
             SkillsMiddleware(
-                skills_dir=global_skills_dir,
+                skills_dir=global_skills_dir or workspace_skills_dir,
                 assistant_id=assistant_id,
                 project_skills_dir=workspace_skills_dir,
+                backend=skills_backend,
             )
         )
 

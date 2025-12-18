@@ -35,6 +35,7 @@ from langchain.agents.middleware.types import (
 )
 from langgraph.runtime import Runtime
 
+from deepagents.backends.protocol import BackendFactory, BackendProtocol
 from deepagents.realtimex_middleware.skills.load import SkillMetadata, list_skills
 
 
@@ -120,12 +121,13 @@ class SkillsMiddleware(AgentMiddleware):
 
     state_schema = SkillsState
 
-    def __init__(
+    def __init__(  # noqa: D417
         self,
         *,
         skills_dir: str | Path | None = None,
         assistant_id: str,
         project_skills_dir: str | Path | None = None,
+        backend: BackendProtocol | BackendFactory | None = None,
     ) -> None:
         """Initialize the skills middleware.
 
@@ -136,12 +138,22 @@ class SkillsMiddleware(AgentMiddleware):
         """
         self.skills_dir = Path(skills_dir).expanduser() if skills_dir else None
         self.assistant_id = assistant_id
-        self.project_skills_dir = (
-            Path(project_skills_dir).expanduser() if project_skills_dir else None
-        )
+        self.project_skills_dir = Path(project_skills_dir).expanduser() if project_skills_dir else None
+        self.backend_or_factory = backend
         # Store display paths for prompts (adapted to provided skills root)
         self.user_skills_display = str(self.skills_dir) if self.skills_dir else None
         self.system_prompt_template = SKILLS_SYSTEM_PROMPT
+
+    def _resolve_backend(self, runtime: Runtime) -> BackendProtocol | None:
+        """Resolve backend from instance or factory."""
+        if isinstance(self.backend_or_factory, BackendProtocol):
+            return self.backend_or_factory
+        if callable(self.backend_or_factory):
+            try:
+                return self.backend_or_factory(runtime)
+            except Exception:  # noqa: BLE001
+                return None
+        return None
 
     def _format_skills_locations(self) -> str:
         """Format skills locations for display in system prompt."""
@@ -150,9 +162,7 @@ class SkillsMiddleware(AgentMiddleware):
             locations.append(f"**User Skills**: `{self.user_skills_display}`")
         if self.project_skills_dir:
             override_note = " (overrides user skills)" if self.user_skills_display else ""
-            locations.append(
-                f"**Project Skills**: `{self.project_skills_dir}`{override_note}"
-            )
+            locations.append(f"**Project Skills**: `{self.project_skills_dir}`{override_note}")
         return "\n".join(locations)
 
     def _format_skills_list(self, skills: list[SkillMetadata]) -> str:
@@ -205,9 +215,11 @@ class SkillsMiddleware(AgentMiddleware):
         """
         # We re-load skills on every new interaction with the agent to capture
         # any changes in the skills directories.
+        backend = self._resolve_backend(runtime)
         skills = list_skills(
             user_skills_dir=self.skills_dir,
             project_skills_dir=self.project_skills_dir,
+            backend=backend,
         )
         return SkillsStateUpdate(skills_metadata=skills)
 

@@ -10,10 +10,11 @@ Each skill is a directory containing a SKILL.md file with:
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    from deepagents.backends.protocol import BackendProtocol
 
 # Maximum size for SKILL.md files (10MB)
 MAX_SKILL_FILE_SIZE = 10 * 1024 * 1024
@@ -59,59 +60,69 @@ def _is_safe_path(path: Path, base_dir: Path) -> bool:
         return False
 
 
+def _parse_skill_metadata_from_content(content: str, path_str: str, source: str) -> SkillMetadata | None:
+    """Parse YAML frontmatter from raw SKILL.md content."""
+
+    # If content comes from a backend `read` call, it may be formatted with
+    # cat-style line numbers (e.g., "     1\t---"). Strip those prefixes
+    # before attempting to parse. Plain content is left intact.
+    def _strip_cat_numbering(text: str) -> str:
+        return "\n".join([re.sub(r"^\s*\d+(?:\.\d+)?\t", "", line) for line in text.splitlines()])
+
+    normalized_content = content
+
+    # Try parsing as-is first.
+    # Match YAML frontmatter between --- delimiters
+    match = re.match(r"^---\s*\n(.*?)\n---\s*\n", normalized_content, re.DOTALL)
+
+    # If no match, try again after stripping cat-style numbering prefixes.
+    if not match:
+        normalized_content = _strip_cat_numbering(content)
+        match = re.match(r"^---\s*\n(.*?)\n---\s*\n", normalized_content, re.DOTALL)
+    if not match:
+        return None
+
+    frontmatter = match.group(1)
+
+    # Parse key-value pairs from YAML (simple parsing, no nested structures)
+    metadata: dict[str, str] = {}
+    for line in frontmatter.split("\n"):
+        # Match "key: value" pattern
+        kv_match = re.match(r"^(\w+):\s*(.+)$", line.strip())
+        if kv_match:
+            key, value = kv_match.groups()
+            metadata[key] = value.strip()
+
+    # Validate required fields
+    if "name" not in metadata or "description" not in metadata:
+        return None
+
+    return SkillMetadata(
+        name=metadata["name"],
+        description=metadata["description"],
+        path=path_str,
+        source=source,
+    )
+
+
 def _parse_skill_metadata(skill_md_path: Path, source: str) -> SkillMetadata | None:
-    """Parse YAML frontmatter from a SKILL.md file."""
+    """Parse YAML frontmatter from a SKILL.md file (filesystem)."""
     try:
-        # Security: Check file size to prevent DoS attacks
         file_size = skill_md_path.stat().st_size
         if file_size > MAX_SKILL_FILE_SIZE:
-            # Silently skip files that are too large
             return None
-
         content = skill_md_path.read_text(encoding="utf-8")
-
-        # Match YAML frontmatter between --- delimiters
-        frontmatter_pattern = r"^---\s*\n(.*?)\n---\s*\n"
-        match = re.match(frontmatter_pattern, content, re.DOTALL)
-
-        if not match:
-            return None
-
-        frontmatter = match.group(1)
-
-        # Parse key-value pairs from YAML (simple parsing, no nested structures)
-        metadata: dict[str, str] = {}
-        for line in frontmatter.split("\n"):
-            # Match "key: value" pattern
-            kv_match = re.match(r"^(\w+):\s*(.+)$", line.strip())
-            if kv_match:
-                key, value = kv_match.groups()
-                metadata[key] = value.strip()
-
-        # Validate required fields
-        if "name" not in metadata or "description" not in metadata:
-            return None
-
-        return SkillMetadata(
-            name=metadata["name"],
-            description=metadata["description"],
-            path=str(skill_md_path),
-            source=source,
-        )
-
+        return _parse_skill_metadata_from_content(content, str(skill_md_path), source)
     except (OSError, UnicodeDecodeError):
-        # Silently skip malformed or inaccessible files
         return None
 
 
-def _list_skills(skills_dir: Path, source: str) -> list[SkillMetadata]:
-    """List all skills from a single skills directory (internal helper)."""
-    # Check if skills directory exists
+def _list_skills_fs(skills_dir: Path, source: str) -> list[SkillMetadata]:
+    """List all skills from a single skills directory using filesystem access."""
     skills_dir = skills_dir.expanduser()
     if not skills_dir.exists():
         return []
 
-    # Resolve base directory to canonical path for security checks
     try:
         resolved_base = skills_dir.resolve()
     except (OSError, RuntimeError):
@@ -143,11 +154,39 @@ def _list_skills(skills_dir: Path, source: str) -> list[SkillMetadata]:
         metadata = _parse_skill_metadata(skill_md_path, source=source)
         if metadata:
             skills.append(metadata)
-
     return skills
 
 
-def list_skills(*, user_skills_dir: Path | None = None, project_skills_dir: Path | None = None) -> list[SkillMetadata]:
+def _list_skills_backend(skills_dir: str | Path, source: str, backend: BackendProtocol) -> list[SkillMetadata]:
+    """List skills using the provided backend (supports virtual mounts)."""
+    skills_path = str(Path(skills_dir).expanduser())
+    try:
+        entries = backend.ls_info(skills_path)
+    except Exception:  # noqa: BLE001
+        return []
+
+    skills: list[SkillMetadata] = []
+    for entry in entries:
+        if not entry.get("is_dir", False):
+            continue
+        skill_dir = entry["path"]
+        skill_md_path = f"{skill_dir.rstrip('/')}/SKILL.md"
+        try:
+            content = backend.read(skill_md_path, offset=0, limit=10000)
+        except Exception:  # noqa: BLE001, S112
+            continue
+        metadata = _parse_skill_metadata_from_content(content, skill_md_path, source=source)
+        if metadata:
+            skills.append(metadata)
+    return skills
+
+
+def list_skills(
+    *,
+    user_skills_dir: Path | str | None = None,
+    project_skills_dir: Path | str | None = None,
+    backend: BackendProtocol | None = None,
+) -> list[SkillMetadata]:
     """List skills from user and/or project directories.
 
     When both directories are provided, project skills with the same name as
@@ -157,13 +196,19 @@ def list_skills(*, user_skills_dir: Path | None = None, project_skills_dir: Path
 
     # Load user skills first (foundation)
     if user_skills_dir:
-        user_skills = _list_skills(user_skills_dir, source="user")
+        if backend is not None:
+            user_skills = _list_skills_backend(user_skills_dir, source="user", backend=backend)
+        else:
+            user_skills = _list_skills_fs(Path(user_skills_dir), source="user")
         for skill in user_skills:
             all_skills[skill["name"]] = skill
 
     # Load project skills second (override/augment)
     if project_skills_dir:
-        project_skills = _list_skills(project_skills_dir, source="project")
+        if backend is not None:
+            project_skills = _list_skills_backend(project_skills_dir, source="project", backend=backend)
+        else:
+            project_skills = _list_skills_fs(Path(project_skills_dir), source="project")
         for skill in project_skills:
             # Project skills override user skills with the same name
             all_skills[skill["name"]] = skill
