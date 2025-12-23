@@ -146,7 +146,7 @@ from deepagents import create_deep_agent
 research_subagent = {
     "name": "research-agent",
     "description": "Used to research in-depth questions",
-    "prompt": "You are an expert researcher",
+    "system_prompt": "You are an expert researcher",
     "tools": [internet_search],
     "model": "openai:gpt-4o",  # Optional, defaults to main agent model
 }
@@ -311,3 +311,9 @@ The middleware automatically adds instructions about the standard tools. Your cu
 - When to use sub-agents vs when NOT to use them
 - Guidance on parallel execution
 - Subagent lifecycle (spawn → run → return → reconcile)
+
+## Security Considerations
+
+### Trust Model
+
+Deepagents follows a "trust the LLM" model similar to Claude Code. The agent can perform any action the underlying tools allow. Security boundaries should be enforced at the tool/sandbox level, not by expecting the LLM to self-police.
