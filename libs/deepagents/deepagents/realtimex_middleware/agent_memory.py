@@ -41,29 +41,27 @@ LONGTERM_MEMORY_SYSTEM_PROMPT = """
 
 Your long-term memory is stored in files on the filesystem and persists across sessions.
 
-**User Memory Location**: `{agent_dir_absolute}` (displays as `{agent_dir_display}`)
-**Project Memory Location**: {project_memory_info}
+**Global Memory Location**: `{agent_dir_absolute}` (displays as `{agent_dir_display}`)
+**Workspace Memory Location**: {project_memory_info}
 
 Your system prompt is loaded from TWO sources at startup:
-1. **User agent.md**: `{agent_dir_absolute}/agent.md` - Your personal preferences across all projects
-2. **Project agent.md**: Loaded from project root if available - Project-specific instructions
+1. **Global agent.md**: `{agent_dir_absolute}/agent.md` - Your personal preferences across all workspaces
+2. **Workspace agent.md**: Loaded from the active workspace if available - Workspace-specific instructions
 
-Project-specific agent.md is loaded from these locations (both combined if both exist):
-- `[project-root]/.deepagents/agent.md` (preferred)
-- `[project-root]/agent.md` (fallback, but also included if both exist)
+Workspace agent.md is loaded from the configured workspace path when provided.
 
 **When to CHECK/READ memories (CRITICAL - do this FIRST):**
-- **At the start of ANY new session**: Check both user and project memories
-  - User: `ls {agent_dir_absolute}`
-  - Project: `ls {project_deepagents_dir}` (if in a project)
-- **BEFORE answering questions**: If asked "what do you know about X?" or "how do I do Y?", check project memories FIRST, then user
-- **When user asks you to do something**: Check if you have project-specific guides or examples
+- **At the start of ANY new session**: Check both global and workspace memories
+  - Global: `ls {agent_dir_absolute}`
+  - Workspace: `ls {project_deepagents_dir}` (if configured)
+- **BEFORE answering questions**: If asked "what do you know about X?" or "how do I do Y?", check workspace memories FIRST, then global
+- **When user asks you to do something**: Check if you have workspace-specific guides or examples
 - **When user references past work**: Search project memory files for related context
 
 **Memory-first response pattern:**
-1. User asks a question → Check project directory first: `ls {project_deepagents_dir}`
+1. User asks a question → Check workspace directory first: `ls {project_deepagents_dir}`
 2. If relevant files exist → Read them with `read_file '{project_deepagents_dir}/[filename]'`
-3. Check user memory if needed → `ls {agent_dir_absolute}`
+3. Check global memory if needed → `ls {agent_dir_absolute}`
 4. Base your answer on saved knowledge supplemented by general knowledge
 
 **When to update memories:**
@@ -83,8 +81,8 @@ Project-specific agent.md is loaded from these locations (both combined if both 
 
 When writing or updating agent memory, decide whether each fact, configuration, or behavior belongs in:
 
-### User Agent File: `{agent_dir_absolute}/agent.md`
-→ Describes the agent's **personality, style, and universal behavior** across all projects.
+### Global Agent File: `{agent_dir_absolute}/agent.md`
+→ Describes the agent's **personality, style, and universal behavior** across all workspaces.
 
 **Store here:**
 - Your general tone and communication style
@@ -98,8 +96,8 @@ When writing or updating agent memory, decide whether each fact, configuration, 
 - "Always use type hints in Python"
 - "Prefer functional programming patterns"
 
-### Project Agent File: `{project_deepagents_dir}/agent.md`
-→ Describes **how this specific project works** and **how the agent should behave here only.**
+### Workspace Agent File: `{project_deepagents_dir}/agent.md`
+→ Describes **how this specific workspace works** and **how the agent should behave here only.**
 
 **Store here:**
 - Project-specific architecture and design patterns
@@ -110,12 +108,12 @@ When writing or updating agent memory, decide whether each fact, configuration, 
 - Team conventions and guidelines
 
 **Examples:**
-- "This project uses FastAPI with SQLAlchemy"
+- "This workspace uses FastAPI with SQLAlchemy"
 - "Tests go in tests/ directory mirroring src/ structure"
 - "All API changes require updating OpenAPI spec"
 
-### Project Memory Files: `{project_deepagents_dir}/*.md`
-→ Use for **project-specific reference information** and structured notes.
+### Workspace Memory Files: `{project_deepagents_dir}/*.md`
+→ Use for **workspace-specific reference information** and structured notes.
 
 **Store here:**
 - API design documentation
@@ -127,18 +125,18 @@ When writing or updating agent memory, decide whether each fact, configuration, 
 **Examples:**
 - `{project_deepagents_dir}/api-design.md` - REST API patterns used
 - `{project_deepagents_dir}/architecture.md` - System architecture overview
-- `{project_deepagents_dir}/deployment.md` - How to deploy this project
+- `{project_deepagents_dir}/deployment.md` - How to deploy this workspace
 
 ### File Operations:
 
-**User memory:**
+**Global memory:**
 ```
 ls {agent_dir_absolute}                              # List user memory files
 read_file '{agent_dir_absolute}/agent.md'            # Read user preferences
 edit_file '{agent_dir_absolute}/agent.md' ...        # Update user preferences
 ```
 
-**Project memory (preferred for project-specific information):**
+**Workspace memory (preferred for workspace-specific information):**
 ```
 ls {project_deepagents_dir}                          # List project memory files
 read_file '{project_deepagents_dir}/agent.md'        # Read project instructions
@@ -147,9 +145,9 @@ write_file '{project_deepagents_dir}/agent.md' ...  # Create project memory file
 ```
 
 **Important**:
-- Project memory files are stored in `.deepagents/` inside the project root
+- Workspace memory files are stored in the configured workspace memory directory
 - Always use absolute paths for file operations
-- Check project memories BEFORE user when answering project-specific questions"""
+- Check workspace memories BEFORE global when answering workspace-specific questions"""
 
 
 DEFAULT_MEMORY_SNIPPET = """<user_memory>

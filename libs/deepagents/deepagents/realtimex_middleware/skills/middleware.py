@@ -159,10 +159,10 @@ class SkillsMiddleware(AgentMiddleware):
         """Format skills locations for display in system prompt."""
         locations = []
         if self.user_skills_display:
-            locations.append(f"**User Skills**: `{self.user_skills_display}`")
+            locations.append(f"**Global Skills**: `{self.user_skills_display}`")
         if self.project_skills_dir:
-            override_note = " (overrides user skills)" if self.user_skills_display else ""
-            locations.append(f"**Project Skills**: `{self.project_skills_dir}`{override_note}")
+            override_note = " (overrides global skills)" if self.user_skills_display else ""
+            locations.append(f"**Workspace Skills**: `{self.project_skills_dir}`{override_note}")
         return "\n".join(locations)
 
     def _format_skills_list(self, skills: list[SkillMetadata]) -> str:
@@ -185,7 +185,7 @@ class SkillsMiddleware(AgentMiddleware):
 
         # Show user skills
         if user_skills:
-            lines.append("**User Skills:**")
+            lines.append("**Global Skills:**")
             for skill in user_skills:
                 lines.append(f"- **{skill['name']}**: {skill['description']}")
                 lines.append(f"  → Read `{skill['path']}` for full instructions")
@@ -193,7 +193,7 @@ class SkillsMiddleware(AgentMiddleware):
 
         # Show project skills
         if project_skills:
-            lines.append("**Project Skills:**")
+            lines.append("**Workspace Skills:**")
             for skill in project_skills:
                 lines.append(f"- **{skill['name']}**: {skill['description']}")
                 lines.append(f"  → Read `{skill['path']}` for full instructions")
