@@ -159,8 +159,6 @@ def create_realtimex_deep_agent(
     deepagent_middleware = [
         TodoListMiddleware(),
         FilesystemMiddleware(backend=backend),
-        *memory_middleware,
-        *skills_middleware,
         SubAgentMiddleware(
             default_model=model,
             default_tools=tools,
@@ -189,6 +187,10 @@ def create_realtimex_deep_agent(
         AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
         PatchToolCallsMiddleware(),
     ]
+    if memory_middleware:
+        deepagent_middleware.extend(memory_middleware)
+    if skills_middleware:
+        deepagent_middleware.extend(skills_middleware)
     if middleware:
         deepagent_middleware.extend(middleware)
     if interrupt_on is not None:
