@@ -146,14 +146,12 @@ class SkillsMiddleware(AgentMiddleware):
 
     def _resolve_backend(self, runtime: Runtime) -> BackendProtocol | None:
         """Resolve backend from instance or factory."""
-        if isinstance(self.backend_or_factory, BackendProtocol):
-            return self.backend_or_factory
         if callable(self.backend_or_factory):
             try:
                 return self.backend_or_factory(runtime)
             except Exception:  # noqa: BLE001
                 return None
-        return None
+        return self.backend_or_factory
 
     def _format_skills_locations(self) -> str:
         """Format skills locations for display in system prompt."""
