@@ -62,6 +62,9 @@ class CompositeBackend:
             List of FileInfo-like dicts with route prefixes added, for files and directories directly in the directory.
             Directories have a trailing / in their path and is_dir=True.
         """
+        # Normalize path separators to forward slashes for consistent comparison
+        path = path.replace("\\", "/")
+
         # Check if path matches a specific route
         for route_prefix, backend in self.sorted_routes:
             if path.startswith(route_prefix.rstrip("/")):

@@ -71,6 +71,9 @@ class FilesystemBackend(BackendProtocol):
         Returns:
             Resolved absolute Path object
         """
+        # Normalize path separators to forward slashes for cross-platform compatibility
+        key = key.replace("\\", "/")
+
         if self.virtual_mode:
             vpath = key if key.startswith("/") else "/" + key
             if ".." in vpath or vpath.startswith("~"):
@@ -103,8 +106,8 @@ class FilesystemBackend(BackendProtocol):
 
         results: list[FileInfo] = []
 
-        # Convert cwd to string for comparison
-        cwd_str = str(self.cwd)
+        # Convert cwd to string for comparison, normalize to forward slashes
+        cwd_str = str(self.cwd).replace("\\", "/")
         if not cwd_str.endswith("/"):
             cwd_str += "/"
 
@@ -117,7 +120,8 @@ class FilesystemBackend(BackendProtocol):
                 except OSError:
                     continue
 
-                abs_path = str(child_path)
+                # Normalize to forward slashes for cross-platform compatibility
+                abs_path = str(child_path).replace("\\", "/")
 
                 if not self.virtual_mode:
                     # Non-virtual mode: use absolute paths
@@ -153,11 +157,13 @@ class FilesystemBackend(BackendProtocol):
                         relative_path = abs_path[len(cwd_str) :]
                     elif abs_path.startswith(str(self.cwd)):
                         # Handle case where cwd doesn't end with /
-                        relative_path = abs_path[len(str(self.cwd)) :].lstrip("/")
+                        relative_path = abs_path[len(str(self.cwd)) :].lstrip("/\\")
                     else:
                         # Path is outside cwd, return as-is or skip
                         relative_path = abs_path
 
+                    # Normalize path separators to forward slashes for cross-platform compatibility
+                    relative_path = relative_path.replace("\\", "/")
                     virt_path = "/" + relative_path
 
                     if is_file:
