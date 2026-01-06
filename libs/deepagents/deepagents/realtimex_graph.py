@@ -175,6 +175,19 @@ def create_realtimex_deep_agent(
                 AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
                 PatchToolCallsMiddleware(),
             ],
+            general_purpose_middleware=[
+                TodoListMiddleware(),
+                FilesystemMiddleware(backend=backend),
+                *skills_middleware,  # Only general-purpose subagent gets skills
+                SummarizationMiddleware(
+                    model=model,
+                    trigger=trigger,
+                    keep=keep,
+                    trim_tokens_to_summarize=None,
+                ),
+                AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
+                PatchToolCallsMiddleware(),
+            ],
             default_interrupt_on=interrupt_on,
             general_purpose_agent=True,
         ),

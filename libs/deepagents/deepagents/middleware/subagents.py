@@ -215,6 +215,7 @@ def _get_subagents(
     default_model: str | BaseChatModel,
     default_tools: Sequence[BaseTool | Callable | dict[str, Any]],
     default_middleware: list[AgentMiddleware] | None,
+    general_purpose_middleware: list[AgentMiddleware] | None,
     default_interrupt_on: dict[str, bool | InterruptOnConfig] | None,
     subagents: list[SubAgent | CompiledSubAgent],
     general_purpose_agent: bool,
@@ -243,7 +244,7 @@ def _get_subagents(
 
     # Create general-purpose agent if enabled
     if general_purpose_agent:
-        general_purpose_middleware = [*default_subagent_middleware]
+        general_purpose_middleware = [*(general_purpose_middleware or default_subagent_middleware)]
         if default_interrupt_on:
             general_purpose_middleware.append(HumanInTheLoopMiddleware(interrupt_on=default_interrupt_on))
         general_purpose_subagent = create_agent(
@@ -286,6 +287,7 @@ def _create_task_tool(
     default_model: str | BaseChatModel,
     default_tools: Sequence[BaseTool | Callable | dict[str, Any]],
     default_middleware: list[AgentMiddleware] | None,
+    general_purpose_middleware: list[AgentMiddleware] | None,
     default_interrupt_on: dict[str, bool | InterruptOnConfig] | None,
     subagents: list[SubAgent | CompiledSubAgent],
     general_purpose_agent: bool,
@@ -311,6 +313,7 @@ def _create_task_tool(
         default_model=default_model,
         default_tools=default_tools,
         default_middleware=default_middleware,
+        general_purpose_middleware=general_purpose_middleware,
         default_interrupt_on=default_interrupt_on,
         subagents=subagents,
         general_purpose_agent=general_purpose_agent,
@@ -446,6 +449,7 @@ class SubAgentMiddleware(AgentMiddleware):
         default_model: str | BaseChatModel,
         default_tools: Sequence[BaseTool | Callable | dict[str, Any]] | None = None,
         default_middleware: list[AgentMiddleware] | None = None,
+        general_purpose_middleware: list[AgentMiddleware] | None = None,
         default_interrupt_on: dict[str, bool | InterruptOnConfig] | None = None,
         subagents: list[SubAgent | CompiledSubAgent] | None = None,
         system_prompt: str | None = TASK_SYSTEM_PROMPT,
@@ -459,6 +463,7 @@ class SubAgentMiddleware(AgentMiddleware):
             default_model=default_model,
             default_tools=default_tools or [],
             default_middleware=default_middleware,
+            general_purpose_middleware=general_purpose_middleware,
             default_interrupt_on=default_interrupt_on,
             subagents=subagents or [],
             general_purpose_agent=general_purpose_agent,
