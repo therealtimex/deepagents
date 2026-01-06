@@ -20,6 +20,7 @@ from langgraph.types import Checkpointer
 from deepagents.backends.protocol import BackendFactory, BackendProtocol
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
+from deepagents.middleware.shell import ShellMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgent, SubAgentMiddleware
 from deepagents.realtimex_middleware.agent_memory import AgentMemoryMiddleware
 from deepagents.realtimex_middleware.skills.middleware import SkillsMiddleware
@@ -63,6 +64,11 @@ def create_realtimex_deep_agent(
     enable_skills: bool = False,
     global_skills_dir: str | None = None,
     workspace_skills_dir: str | None = None,
+    enable_shell: bool = True,
+    shell_working_dir: str | None = None,
+    shell_env: dict[str, str] | None = None,
+    shell_timeout: float = 120.0,
+    shell_max_output_bytes: int = 100_000,
 ) -> CompiledStateGraph:
     """Create a deep agent.
 
@@ -109,6 +115,11 @@ def create_realtimex_deep_agent(
         enable_skills: Enable agent skills middleware (progressive disclosure of SKILL.md).
         global_skills_dir: Global skills directory. At least one of global_skills_dir or workspace_skills_dir is required if enable_skills is True.
         workspace_skills_dir: Workspace/project skills directory. At least one of global_skills_dir or workspace_skills_dir is required if enable_skills is True. Workspace skills override global skills when names conflict.
+        enable_shell: Enable shell tool middleware (default: True).
+        shell_working_dir: Working directory for shell commands (defaults to cwd).
+        shell_env: Environment variables to pass to the shell tool.
+        shell_timeout: Maximum time in seconds to wait for command completion.
+        shell_max_output_bytes: Maximum number of bytes to capture from output.
 
     Returns:
         A configured deep agent.
@@ -156,6 +167,23 @@ def create_realtimex_deep_agent(
             )
         )
 
+    shell_middleware: list[AgentMiddleware] = []
+    if enable_shell:
+        virtual_prefixes: list[str] = []
+        for path in (global_skills_dir, workspace_skills_dir):
+            if isinstance(path, str) and path.startswith("/"):
+                virtual_prefixes.append(path)
+        shell_middleware.append(
+            ShellMiddleware(
+                backend=backend,
+                virtual_path_prefixes=virtual_prefixes,
+                working_dir=shell_working_dir,
+                timeout=shell_timeout,
+                max_output_bytes=shell_max_output_bytes,
+                env=shell_env,
+            )
+        )
+
     deepagent_middleware = [
         TodoListMiddleware(),
         FilesystemMiddleware(backend=backend),
@@ -179,6 +207,7 @@ def create_realtimex_deep_agent(
                 TodoListMiddleware(),
                 FilesystemMiddleware(backend=backend),
                 *skills_middleware,  # Only general-purpose subagent gets skills
+                *shell_middleware,  # General-purpose subagent inherits shell when enabled
                 SummarizationMiddleware(
                     model=model,
                     trigger=trigger,
@@ -204,6 +233,8 @@ def create_realtimex_deep_agent(
         deepagent_middleware.extend(memory_middleware)
     if skills_middleware:
         deepagent_middleware.extend(skills_middleware)
+    if shell_middleware:
+        deepagent_middleware.extend(shell_middleware)
     if middleware:
         deepagent_middleware.extend(middleware)
     if interrupt_on is not None:
