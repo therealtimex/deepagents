@@ -1316,7 +1316,7 @@ wheels = [
 
 [[package]]
 name = "realtimex-deepagents"
-version = "0.3.0.post3"
+version = "0.3.0.post4"
 source = { editable = "." }
 dependencies = [
     { name = "langchain" },
