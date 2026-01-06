@@ -149,7 +149,7 @@ def create_realtimex_deep_agent(
         skills_backend = backend  # may be BackendProtocol or factory; middleware resolves
         skills_middleware.append(
             SkillsMiddleware(
-                skills_dir=global_skills_dir or workspace_skills_dir,
+                skills_dir=global_skills_dir,
                 assistant_id=assistant_id,
                 project_skills_dir=workspace_skills_dir,
                 backend=skills_backend,

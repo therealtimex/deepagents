@@ -53,6 +53,18 @@ class SkillsStateUpdate(TypedDict):
     """List of loaded skill metadata (name, description, path)."""
 
 
+# Skills Directory Context
+SKILLS_DIRECTORY_CONTEXT = """
+### Skills Directory
+
+Your skills are stored in the following locations:
+{skills_locations_detail}
+
+Skills may contain scripts or supporting files. When executing skill scripts:
+- Use the absolute paths shown in the skills list below
+- Example: If a skill is at `/path/to/skills/web-research/SKILL.md`, scripts are in `/path/to/skills/web-research/`
+"""
+
 # Skills System Documentation
 SKILLS_SYSTEM_PROMPT = """
 
@@ -75,10 +87,17 @@ Skills follow a **progressive disclosure** pattern - you know they exist (name +
 3. **Follow the skill's instructions**: SKILL.md contains step-by-step workflows, best practices, and examples
 4. **Access supporting files**: Skills may include Python scripts, configs, or reference docs - use absolute paths
 
-**When to Use Skills:**
-- When the user's request matches a skill's domain (e.g., "research X" → web-research skill)
-- When you need specialized knowledge or structured workflows
+**When to Use Skills (IMPORTANT - Check First):**
+- **BEFORE starting any new task**: Review the available skills list above to see if a skill matches the task domain
+- **When the user's request matches a skill's domain** (e.g., "research X" → web-research skill)
+- When you need specialized knowledge or structured workflows that a skill might provide
 - When a skill provides proven patterns for complex tasks
+
+**Skills-First Task Pattern:**
+1. User requests a task → Review the skills list above
+2. If a skill matches the domain → Read the full SKILL.md using the path shown
+3. Follow the skill's workflow and instructions
+4. If no skill matches → Proceed with general capabilities
 
 **Skills are Self-Documenting:**
 - Each SKILL.md tells you exactly what the skill does and how to use it
@@ -96,7 +115,7 @@ User: "Can you research the latest developments in quantum computing?"
 3. Follow the skill's research workflow (search → organize → synthesize)
 4. Use any helper scripts with absolute paths
 
-Remember: Skills are tools to make you more capable and consistent. When in doubt, check if a skill exists for the task!
+Remember: Skills provide specialized expertise - when a skill exists for the task, use it! When in doubt, check if a skill exists for the task domain.
 """  # noqa: E501
 
 
@@ -161,6 +180,19 @@ class SkillsMiddleware(AgentMiddleware):
         if self.project_skills_dir:
             override_note = " (overrides global skills)" if self.user_skills_display else ""
             locations.append(f"**Workspace Skills**: `{self.project_skills_dir}`{override_note}")
+        return "\n".join(locations)
+
+    def _format_skills_locations_detail(self) -> str:
+        """Format detailed skills locations for the Skills Directory section."""
+        locations = []
+        if self.user_skills_display:
+            locations.append(f"- **Global Skills**: `{self.user_skills_display}`")
+        if self.project_skills_dir:
+            override_note = " (overrides global skills)" if self.user_skills_display else ""
+            locations.append(f"- **Workspace Skills**: `{self.project_skills_dir}`{override_note}")
+
+        if not locations:
+            return "- No skills directories configured"
         return "\n".join(locations)
 
     def _format_skills_list(self, skills: list[SkillMetadata]) -> str:
@@ -242,7 +274,13 @@ class SkillsMiddleware(AgentMiddleware):
 
         # Format skills locations and list
         skills_locations = self._format_skills_locations()
+        skills_locations_detail = self._format_skills_locations_detail()
         skills_list = self._format_skills_list(skills_metadata)
+
+        # Format the skills directory context
+        directory_section = SKILLS_DIRECTORY_CONTEXT.format(
+            skills_locations_detail=skills_locations_detail,
+        )
 
         # Format the skills documentation
         skills_section = self.system_prompt_template.format(
@@ -250,10 +288,13 @@ class SkillsMiddleware(AgentMiddleware):
             skills_list=skills_list,
         )
 
+        # Combine directory context + skills system prompt
+        full_skills_prompt = directory_section + "\n" + skills_section
+
         if request.system_prompt:  # noqa: SIM108
-            system_prompt = request.system_prompt + "\n\n" + skills_section
+            system_prompt = request.system_prompt + "\n\n" + full_skills_prompt
         else:
-            system_prompt = skills_section
+            system_prompt = full_skills_prompt
 
         return handler(request.override(system_prompt=system_prompt))
 
@@ -277,7 +318,13 @@ class SkillsMiddleware(AgentMiddleware):
 
         # Format skills locations and list
         skills_locations = self._format_skills_locations()
+        skills_locations_detail = self._format_skills_locations_detail()
         skills_list = self._format_skills_list(skills_metadata)
+
+        # Format the skills directory context
+        directory_section = SKILLS_DIRECTORY_CONTEXT.format(
+            skills_locations_detail=skills_locations_detail,
+        )
 
         # Format the skills documentation
         skills_section = self.system_prompt_template.format(
@@ -285,10 +332,13 @@ class SkillsMiddleware(AgentMiddleware):
             skills_list=skills_list,
         )
 
+        # Combine directory context + skills system prompt
+        full_skills_prompt = directory_section + "\n" + skills_section
+
         # Inject into system prompt
         if request.system_prompt:  # noqa: SIM108
-            system_prompt = request.system_prompt + "\n\n" + skills_section
+            system_prompt = request.system_prompt + "\n\n" + full_skills_prompt
         else:
-            system_prompt = skills_section
+            system_prompt = full_skills_prompt
 
         return await handler(request.override(system_prompt=system_prompt))

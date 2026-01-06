@@ -184,6 +184,11 @@ When to use the task tool:
 - When sandboxing improves reliability (e.g. code execution, structured searches, data formatting)
 - When you only care about the output of the subagent, and not the intermediate steps (ex. performing a lot of research and then returned a synthesized report, performing a series of computations or lookups to achieve a concise, relevant answer.)
 
+Skills-aware delegation:
+- Before deciding to delegate, check whether a relevant skill applies
+- If a skill applies, read its SKILL.md and follow its instructions (including any instruction to use the task tool)
+- Only use the task tool based on general heuristics when no relevant skill applies
+
 Subagent lifecycle:
 1. **Spawn** → Provide clear role, instructions, and expected output
 2. **Run** → The subagent completes the task autonomously
