@@ -1,4 +1,22 @@
-"""CompositeBackend: Route operations to different backends based on path prefix."""
+"""Composite backend that routes file operations by path prefix.
+
+Routes operations to different backends based on path prefixes. Use this when you
+need different storage strategies for different paths (e.g., state for temp files,
+persistent store for memories).
+
+Examples:
+    ```python
+    from deepagents.backends.composite import CompositeBackend
+    from deepagents.backends.state import StateBackend
+    from deepagents.backends.store import StoreBackend
+
+    runtime = make_runtime()
+    composite = CompositeBackend(default=StateBackend(runtime), routes={"/memories/": StoreBackend(runtime)})
+
+    composite.write("/temp.txt", "ephemeral")
+    composite.write("/memories/note.md", "persistent")
+    ```
+"""
 
 from collections import defaultdict
 
@@ -16,12 +34,38 @@ from deepagents.backends.protocol import (
 from deepagents.backends.state import StateBackend
 
 
-class CompositeBackend:
+class CompositeBackend(BackendProtocol):
+    """Routes file operations to different backends by path prefix.
+
+    Matches paths against route prefixes (longest first) and delegates to the
+    corresponding backend. Unmatched paths use the default backend.
+
+    Attributes:
+        default: Backend for paths that don't match any route.
+        routes: Map of path prefixes to backends (e.g., {"/memories/": store_backend}).
+        sorted_routes: Routes sorted by length (longest first) for correct matching.
+
+    Examples:
+        ```python
+        composite = CompositeBackend(default=StateBackend(runtime), routes={"/memories/": StoreBackend(runtime), "/cache/": StoreBackend(runtime)})
+
+        composite.write("/temp.txt", "data")
+        composite.write("/memories/note.txt", "data")
+        ```
+    """
+
     def __init__(
         self,
         default: BackendProtocol | StateBackend,
         routes: dict[str, BackendProtocol],
     ) -> None:
+        """Initialize composite backend.
+
+        Args:
+            default: Backend for paths that don't match any route.
+            routes: Map of path prefixes to backends. Prefixes must start with "/"
+                and should end with "/" (e.g., "/memories/").
+        """
         # Default backend
         self.default = default
 
@@ -32,14 +76,14 @@ class CompositeBackend:
         self.sorted_routes = sorted(routes.items(), key=lambda x: len(x[0]), reverse=True)
 
     def _get_backend_and_key(self, key: str) -> tuple[BackendProtocol, str]:
-        """Determine which backend handles this key and strip prefix.
+        """Get backend for path and strip route prefix.
 
         Args:
-            key: Original file path
+            key: File path to route.
 
         Returns:
-            Tuple of (backend, stripped_key) where stripped_key has the route
-            prefix removed (but keeps leading slash).
+            Tuple of (backend, stripped_path). The stripped path has the route
+            prefix removed but keeps the leading slash.
         """
         # Check routes in order of length (longest first)
         for prefix, backend in self.sorted_routes:
@@ -53,14 +97,23 @@ class CompositeBackend:
         return self.default, key
 
     def ls_info(self, path: str) -> list[FileInfo]:
-        """List files and directories in the specified directory (non-recursive).
+        """List directory contents (non-recursive).
+
+        If path matches a route, lists only that backend. If path is "/", aggregates
+        default backend plus virtual route directories. Otherwise lists default backend.
 
         Args:
-            path: Absolute path to directory.
+            path: Absolute directory path starting with "/".
 
         Returns:
-            List of FileInfo-like dicts with route prefixes added, for files and directories directly in the directory.
-            Directories have a trailing / in their path and is_dir=True.
+            List of FileInfo dicts. Directories have trailing "/" and is_dir=True.
+            Route prefixes are restored in returned paths.
+
+        Examples:
+            ```python
+            infos = composite.ls_info("/")
+            infos = composite.ls_info("/memories/")
+            ```
         """
         # Check if path matches a specific route
         for route_prefix, backend in self.sorted_routes:
@@ -169,36 +222,27 @@ class CompositeBackend:
         path: str | None = None,
         glob: str | None = None,
     ) -> list[GrepMatch] | str:
-        """Search for a regex pattern in files, routing to appropriate backend(s).
+        """Search files for regex pattern.
 
-        This method routes grep searches to the appropriate backend based on the path.
-        If the path matches a specific route prefix, only that backend is searched.
-        If path is None or "/", all backends (default + routed) are searched and results merged.
-        Otherwise, only the default backend is searched.
-
-        The actual search implementation is delegated to the underlying backend(s).
-        Supports glob filtering to limit search to specific file patterns.
+        Routes to backends based on path: specific route searches one backend,
+        "/" or None searches all backends, otherwise searches default backend.
 
         Args:
-            pattern: Regular expression pattern to search for in file contents.
-            path: Optional directory path to search in. If None or "/", searches all backends.
-                  If matches a route prefix, searches only that backend. Otherwise, searches default backend.
-            glob: Optional glob pattern to filter which FILES to search.
-                  Filters by filename/path, not content.
-                  Supports standard glob wildcards:
-                  - `*` matches any characters in filename
-                  - `**` matches any directories recursively
-                  - `?` matches single character
-                  - `[abc]` matches one character from set
-                  Examples: "*.py", "**/*.txt", "src/**/*.js"
+            pattern: Regex pattern to search for.
+            path: Directory to search. None searches all backends.
+            glob: Glob pattern to filter files (e.g., "*.py", "**/*.txt").
+                Filters by filename, not content.
 
         Returns:
-            On success: list[GrepMatch] with structured results containing:
-                - path: Absolute file path (with route prefixes restored)
-                - line: Line number (1-indexed)
-                - text: Full line content containing the match
+            List of GrepMatch dicts with path (route prefix restored), line
+            (1-indexed), and text. Returns error string on failure.
 
-            On error: str with error message (e.g., invalid regex pattern)
+        Examples:
+            ```python
+            matches = composite.grep_raw("TODO", path="/memories/")
+            matches = composite.grep_raw("error", path="/")
+            matches = composite.grep_raw("import", path="/", glob="*.py")
+            ```
         """
         # If path targets a specific route, search only that backend
         for route_prefix, backend in self.sorted_routes:
@@ -238,36 +282,7 @@ class CompositeBackend:
     ) -> list[GrepMatch] | str:
         """Async version of grep_raw.
 
-        Search for a regex pattern in files, routing to appropriate backend(s).
-
-        This method routes grep searches to the appropriate backend based on the path.
-        If the path matches a specific route prefix, only that backend is searched.
-        If path is None or "/", all backends (default + routed) are searched and results merged.
-        Otherwise, only the default backend is searched.
-
-        The actual search implementation is delegated to the underlying backend(s).
-        Supports glob filtering to limit search to specific file patterns.
-
-        Args:
-            pattern: Regular expression pattern to search for in file contents.
-            path: Optional directory path to search in. If None or "/", searches all backends.
-                  If matches a route prefix, searches only that backend. Otherwise, searches default backend.
-            glob: Optional glob pattern to filter which FILES to search.
-                  Filters by filename/path, not content.
-                  Supports standard glob wildcards:
-                  - `*` matches any characters in filename
-                  - `**` matches any directories recursively
-                  - `?` matches single character
-                  - `[abc]` matches one character from set
-                  Examples: "*.py", "**/*.txt", "src/**/*.js"
-
-        Returns:
-            On success: list[GrepMatch] with structured results containing:
-                - path: Absolute file path (with route prefixes restored)
-                - line: Line number (1-indexed)
-                - text: Full line content containing the match
-
-            On error: str with error message (e.g., invalid regex pattern)
+        See grep_raw() for detailed documentation on routing behavior and parameters.
         """
         # If path targets a specific route, search only that backend
         for route_prefix, backend in self.sorted_routes:
@@ -450,19 +465,23 @@ class CompositeBackend:
         self,
         command: str,
     ) -> ExecuteResponse:
-        """Execute a command via the default backend.
-
-        Execution is not path-specific, so it always delegates to the default backend.
-        The default backend must implement SandboxBackendProtocol for this to work.
+        """Execute shell command via default backend.
 
         Args:
-            command: Full shell command string to execute.
+            command: Shell command to execute.
 
         Returns:
-            ExecuteResponse with combined output, exit code, and truncation flag.
+            ExecuteResponse with output, exit code, and truncation flag.
 
         Raises:
-            NotImplementedError: If default backend doesn't support execution.
+            NotImplementedError: If default backend doesn't implement SandboxBackendProtocol.
+
+        Examples:
+            ```python
+            composite = CompositeBackend(default=FilesystemBackend(root_dir="/tmp"), routes={"/memories/": StoreBackend(runtime)})
+
+            result = composite.execute("ls -la")
+            ```
         """
         if isinstance(self.default, SandboxBackendProtocol):
             return self.default.execute(command)
