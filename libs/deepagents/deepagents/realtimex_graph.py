@@ -1,4 +1,9 @@
-"""Deepagents come with planning, filesystem, and subagents."""
+"""RealTimeX deep agent adapter.
+
+This module provides create_realtimex_deep_agent, which is aligned with upstream's
+create_deep_agent but adds the `prompt` parameter alias for backward compatibility
+with RealTimeX downstream projects.
+"""
 
 from collections.abc import Callable, Sequence
 from typing import Any
@@ -8,6 +13,7 @@ from langchain.agents.middleware import HumanInTheLoopMiddleware, InterruptOnCon
 from langchain.agents.middleware.summarization import SummarizationMiddleware
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain.agents.structured_output import ResponseFormat
+from langchain.chat_models import init_chat_model
 from langchain_anthropic import ChatAnthropic
 from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
 from langchain_core.language_models import BaseChatModel
@@ -17,13 +23,13 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
 from langgraph.types import Checkpointer
 
+from deepagents.backends import StateBackend
 from deepagents.backends.protocol import BackendFactory, BackendProtocol
 from deepagents.middleware.filesystem import FilesystemMiddleware
+from deepagents.middleware.memory import MemoryMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
-from deepagents.middleware.shell import ShellMiddleware
+from deepagents.middleware.skills import SkillsMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgent, SubAgentMiddleware
-from deepagents.realtimex_middleware.agent_memory import AgentMemoryMiddleware
-from deepagents.realtimex_middleware.skills.middleware import SkillsMiddleware
 
 BASE_AGENT_PROMPT = "In order to complete the objective that the user asks of you, you have access to a number of standard tools."
 
@@ -32,7 +38,7 @@ def get_default_model() -> ChatAnthropic:
     """Get the default model for deep agents.
 
     Returns:
-        ChatAnthropic instance configured with Claude Sonnet 4.
+        `ChatAnthropic` instance configured with Claude Sonnet 4.5.
     """
     return ChatAnthropic(
         model_name="claude-sonnet-4-5-20250929",
@@ -45,9 +51,11 @@ def create_realtimex_deep_agent(
     tools: Sequence[BaseTool | Callable | dict[str, Any]] | None = None,
     *,
     system_prompt: str | None = None,
-    prompt: str | None = None,
+    prompt: str | None = None,  # RealTimeX alias for system_prompt (backward compat)
     middleware: Sequence[AgentMiddleware] = (),
     subagents: list[SubAgent | CompiledSubAgent] | None = None,
+    skills: list[str] | None = None,
+    memory: list[str] | None = None,
     response_format: ResponseFormat | None = None,
     context_schema: type[Any] | None = None,
     checkpointer: Checkpointer | None = None,
@@ -57,78 +65,69 @@ def create_realtimex_deep_agent(
     debug: bool = False,
     name: str | None = None,
     cache: BaseCache | None = None,
-    assistant_id: str = "agent",
-    enable_memory: bool = False,
-    global_agent_path: str | None = None,
-    workspace_agent_path: str | None = None,
-    enable_skills: bool = False,
-    global_skills_dir: str | None = None,
-    workspace_skills_dir: str | None = None,
-    enable_shell: bool = True,
-    shell_working_dir: str | None = None,
-    shell_env: dict[str, str] | None = None,
-    shell_timeout: float = 120.0,
-    shell_max_output_bytes: int = 100_000,
 ) -> CompiledStateGraph:
-    """Create a deep agent.
+    """Create a RealTimeX deep agent.
 
-    This agent will by default have access to a tool to write todos (write_todos),
-    seven file and execution tools: ls, read_file, write_file, edit_file, glob, grep, execute,
+    This is aligned with upstream's create_deep_agent with an additional `prompt`
+    parameter for backward compatibility with RealTimeX downstream projects.
+
+    This agent will by default have access to a tool to write todos (`write_todos`),
+    seven file and execution tools: `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `execute`,
     and a tool to call subagents.
 
-    The execute tool allows running shell commands if the backend implements SandboxBackendProtocol.
-    For non-sandbox backends, the execute tool will return an error message.
+    The `execute` tool allows running shell commands if the backend implements `SandboxBackendProtocol`.
+    For non-sandbox backends, the `execute` tool will return an error message.
 
     Args:
-        model: The model to use. Defaults to Claude Sonnet 4.
+        model: The model to use. Defaults to `claude-sonnet-4-5-20250929`.
         tools: The tools the agent should have access to.
         system_prompt: The additional instructions the agent should have. Will go in
             the system prompt.
+        prompt: Alias for system_prompt (RealTimeX backward compatibility).
         middleware: Additional middleware to apply after standard middleware.
-        subagents: The subagents to use. Each subagent should be a dictionary with the
-            following keys:
-                - `name`
-                - `description` (used by the main agent to decide whether to call the
-                  sub agent)
-                - `prompt` (used as the system prompt in the subagent)
-                - (optional) `tools`
-                - (optional) `model` (either a LanguageModelLike instance or dict
-                  settings)
-                - (optional) `middleware` (list of AgentMiddleware)
+        subagents: The subagents to use.
+
+            Each subagent should be a `dict` with the following keys:
+
+            - `name`
+            - `description` (used by the main agent to decide whether to call the sub agent)
+            - `prompt` (used as the system prompt in the subagent)
+            - (optional) `tools`
+            - (optional) `model` (either a `LanguageModelLike` instance or `dict` settings)
+            - (optional) `middleware` (list of `AgentMiddleware`)
+        skills: Optional list of skill source paths (e.g., `["/skills/user/", "/skills/project/"]`).
+
+            Paths must be specified using POSIX conventions (forward slashes) and are relative
+            to the backend's root. When using `StateBackend` (default), provide skill files via
+            `invoke(files={...})`. With `FilesystemBackend`, skills are loaded from disk relative
+            to the backend's `root_dir`. Later sources override earlier ones for skills with the
+            same name (last one wins).
+        memory: Optional list of memory file paths (`AGENTS.md` files) to load
+            (e.g., `["/memory/AGENTS.md"]`). Display names are automatically derived from paths.
+            Memory is loaded at agent startup and added into the system prompt.
         response_format: A structured output response format to use for the agent.
         context_schema: The schema of the deep agent.
-        checkpointer: Optional checkpointer for persisting agent state between runs.
-        store: Optional store for persistent storage (required if backend uses StoreBackend).
-        backend: Optional backend for file storage and execution. Pass either a Backend instance
-            or a callable factory like `lambda rt: StateBackend(rt)`. For execution support,
-            use a backend that implements SandboxBackendProtocol.
-        interrupt_on: Optional Dict[str, bool | InterruptOnConfig] mapping tool names to
-            interrupt configs.
-        prompt: Alias for system_prompt for backward compatibility.
-        debug: Whether to enable debug mode. Passed through to create_agent.
-        name: The name of the agent. Passed through to create_agent.
-        cache: The cache to use for the agent. Passed through to create_agent.
-        assistant_id: Agent identifier used for display in prompts (default: "agent").
-        enable_memory: Enable long-term memory injection from agent.md files.
-        global_agent_path: Path to global agent.md. At least one of global_agent_path or workspace_agent_path is required if enable_memory is True.
-        workspace_agent_path: Workspace/project agent.md path. At least one of global_agent_path or workspace_agent_path is required if enable_memory is True.
-        enable_skills: Enable agent skills middleware (progressive disclosure of SKILL.md).
-        global_skills_dir: Global skills directory. At least one of global_skills_dir or workspace_skills_dir is required if enable_skills is True.
-        workspace_skills_dir: Workspace/project skills directory. At least one of global_skills_dir or workspace_skills_dir is required if enable_skills is True. Workspace skills override global skills when names conflict.
-        enable_shell: Enable shell tool middleware (default: True).
-        shell_working_dir: Working directory for shell commands (defaults to cwd).
-        shell_env: Environment variables to pass to the shell tool.
-        shell_timeout: Maximum time in seconds to wait for command completion.
-        shell_max_output_bytes: Maximum number of bytes to capture from output.
+        checkpointer: Optional `Checkpointer` for persisting agent state between runs.
+        store: Optional store for persistent storage (required if backend uses `StoreBackend`).
+        backend: Optional backend for file storage and execution.
+
+            Pass either a `Backend` instance or a callable factory like `lambda rt: StateBackend(rt)`.
+            For execution support, use a backend that implements `SandboxBackendProtocol`.
+        interrupt_on: Mapping of tool names to interrupt configs.
+        debug: Whether to enable debug mode. Passed through to `create_agent`.
+        name: The name of the agent. Passed through to `create_agent`.
+        cache: The cache to use for the agent. Passed through to `create_agent`.
 
     Returns:
         A configured deep agent.
-    """  # noqa: E501
+    """
+    # RealTimeX backward compatibility: accept `prompt` as alias for `system_prompt`
+    system_prompt = system_prompt if system_prompt is not None else prompt
+
     if model is None:
         model = get_default_model()
-
-    # RealTimeX wrappers previously passed `prompt`; keep accepting it for compatibility.
-    system_prompt = system_prompt if system_prompt is not None else prompt
+    elif isinstance(model, str):
+        model = init_chat_model(model)
 
     if (
         model.profile is not None
@@ -142,99 +141,58 @@ def create_realtimex_deep_agent(
         trigger = ("tokens", 170000)
         keep = ("messages", 6)
 
-    memory_middleware: list[AgentMiddleware] = []
-    if enable_memory:
-        if global_agent_path is None and workspace_agent_path is None:
-            raise ValueError("At least one of global_agent_path or workspace_agent_path must be provided when enable_memory is True.")  # noqa: EM101, TRY003
-        memory_middleware.append(
-            AgentMemoryMiddleware(
-                global_agent_path=global_agent_path,
-                workspace_agent_path=workspace_agent_path,
-            )
-        )
-
-    skills_middleware: list[AgentMiddleware] = []
-    if enable_skills:
-        if not global_skills_dir and not workspace_skills_dir:
-            raise ValueError("At least one of global_skills_dir or workspace_skills_dir must be provided when enable_skills is True.")  # noqa: EM101, TRY003
-        skills_backend = backend  # may be BackendProtocol or factory; middleware resolves
-        skills_middleware.append(
-            SkillsMiddleware(
-                skills_dir=global_skills_dir,
-                assistant_id=assistant_id,
-                project_skills_dir=workspace_skills_dir,
-                backend=skills_backend,
-            )
-        )
-
-    shell_middleware: list[AgentMiddleware] = []
-    if enable_shell:
-        virtual_prefixes: list[str] = []
-        for path in (global_skills_dir, workspace_skills_dir):
-            if isinstance(path, str) and path.startswith("/"):
-                virtual_prefixes.append(path)
-        shell_middleware.append(
-            ShellMiddleware(
-                backend=backend,
-                virtual_path_prefixes=virtual_prefixes,
-                working_dir=shell_working_dir,
-                timeout=shell_timeout,
-                max_output_bytes=shell_max_output_bytes,
-                env=shell_env,
-            )
-        )
-
-    deepagent_middleware = [
+    # Build middleware stack for subagents (includes skills if provided)
+    subagent_middleware: list[AgentMiddleware] = [
         TodoListMiddleware(),
-        FilesystemMiddleware(backend=backend),
-        SubAgentMiddleware(
-            default_model=model,
-            default_tools=tools,
-            subagents=subagents if subagents is not None else [],
-            default_middleware=[
-                TodoListMiddleware(),
-                FilesystemMiddleware(backend=backend),
-                SummarizationMiddleware(
-                    model=model,
-                    trigger=trigger,
-                    keep=keep,
-                    trim_tokens_to_summarize=None,
-                ),
-                AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
-                PatchToolCallsMiddleware(),
-            ],
-            general_purpose_middleware=[
-                TodoListMiddleware(),
-                FilesystemMiddleware(backend=backend),
-                *skills_middleware,  # Only general-purpose subagent gets skills
-                *shell_middleware,  # General-purpose subagent inherits shell when enabled
-                SummarizationMiddleware(
-                    model=model,
-                    trigger=trigger,
-                    keep=keep,
-                    trim_tokens_to_summarize=None,
-                ),
-                AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
-                PatchToolCallsMiddleware(),
-            ],
-            default_interrupt_on=interrupt_on,
-            general_purpose_agent=True,
-        ),
-        SummarizationMiddleware(
-            model=model,
-            trigger=trigger,
-            keep=keep,
-            trim_tokens_to_summarize=None,
-        ),
-        AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
-        PatchToolCallsMiddleware(),
     ]
-    if memory_middleware:
-        deepagent_middleware.extend(memory_middleware)
-    if skills_middleware:
-        deepagent_middleware.extend(skills_middleware)
-    if shell_middleware:
-        deepagent_middleware.extend(shell_middleware)
+
+    backend = backend if backend is not None else (lambda rt: StateBackend(rt))
+
+    if skills is not None:
+        subagent_middleware.append(SkillsMiddleware(backend=backend, sources=skills))
+    subagent_middleware.extend(
+        [
+            FilesystemMiddleware(backend=backend),
+            SummarizationMiddleware(
+                model=model,
+                trigger=trigger,
+                keep=keep,
+                trim_tokens_to_summarize=None,
+            ),
+            AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
+            PatchToolCallsMiddleware(),
+        ]
+    )
+
+    # Build main agent middleware stack
+    deepagent_middleware: list[AgentMiddleware] = [
+        TodoListMiddleware(),
+    ]
+    if memory is not None:
+        deepagent_middleware.append(MemoryMiddleware(backend=backend, sources=memory))
+    if skills is not None:
+        deepagent_middleware.append(SkillsMiddleware(backend=backend, sources=skills))
+    deepagent_middleware.extend(
+        [
+            FilesystemMiddleware(backend=backend),
+            SubAgentMiddleware(
+                default_model=model,
+                default_tools=tools,
+                subagents=subagents if subagents is not None else [],
+                default_middleware=subagent_middleware,
+                default_interrupt_on=interrupt_on,
+                general_purpose_agent=True,
+            ),
+            SummarizationMiddleware(
+                model=model,
+                trigger=trigger,
+                keep=keep,
+                trim_tokens_to_summarize=None,
+            ),
+            AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
+            PatchToolCallsMiddleware(),
+        ]
+    )
     if middleware:
         deepagent_middleware.extend(middleware)
     if interrupt_on is not None:

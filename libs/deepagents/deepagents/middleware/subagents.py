@@ -60,8 +60,13 @@ class CompiledSubAgent(TypedDict):
 
 DEFAULT_SUBAGENT_PROMPT = "In order to complete the objective that the user asks of you, you have access to a number of standard tools."
 
-# State keys that should be excluded when passing state to subagents
-_EXCLUDED_STATE_KEYS = ("messages", "todos")
+# State keys that are excluded when passing state to subagents and when returning
+# updates from subagents.
+# When returning updates:
+# 1. The messages key is handled explicitly to ensure only the final message is included
+# 2. The todos and structured_response keys are excluded as they do not have a defined reducer
+#    and no clear meaning for returning them from a subagent to the main agent.
+_EXCLUDED_STATE_KEYS = {"messages", "todos", "structured_response"}
 
 TASK_TOOL_DESCRIPTION = """Launch an ephemeral subagent to handle complex, multi-step independent tasks with isolated context windows.
 
@@ -184,11 +189,6 @@ When to use the task tool:
 - When sandboxing improves reliability (e.g. code execution, structured searches, data formatting)
 - When you only care about the output of the subagent, and not the intermediate steps (ex. performing a lot of research and then returned a synthesized report, performing a series of computations or lookups to achieve a concise, relevant answer.)
 
-Skills-aware delegation:
-- Before deciding to delegate, check whether a relevant skill applies
-- If a skill applies, read its SKILL.md and follow its instructions (including any instruction to use the task tool)
-- Only use the task tool based on general heuristics when no relevant skill applies
-
 Subagent lifecycle:
 1. **Spawn** → Provide clear role, instructions, and expected output
 2. **Run** → The subagent completes the task autonomously
@@ -215,7 +215,6 @@ def _get_subagents(
     default_model: str | BaseChatModel,
     default_tools: Sequence[BaseTool | Callable | dict[str, Any]],
     default_middleware: list[AgentMiddleware] | None,
-    general_purpose_middleware: list[AgentMiddleware] | None,
     default_interrupt_on: dict[str, bool | InterruptOnConfig] | None,
     subagents: list[SubAgent | CompiledSubAgent],
     general_purpose_agent: bool,
@@ -244,7 +243,7 @@ def _get_subagents(
 
     # Create general-purpose agent if enabled
     if general_purpose_agent:
-        general_purpose_middleware = [*(general_purpose_middleware or default_subagent_middleware)]
+        general_purpose_middleware = [*default_subagent_middleware]
         if default_interrupt_on:
             general_purpose_middleware.append(HumanInTheLoopMiddleware(interrupt_on=default_interrupt_on))
         general_purpose_subagent = create_agent(
@@ -287,7 +286,6 @@ def _create_task_tool(
     default_model: str | BaseChatModel,
     default_tools: Sequence[BaseTool | Callable | dict[str, Any]],
     default_middleware: list[AgentMiddleware] | None,
-    general_purpose_middleware: list[AgentMiddleware] | None,
     default_interrupt_on: dict[str, bool | InterruptOnConfig] | None,
     subagents: list[SubAgent | CompiledSubAgent],
     general_purpose_agent: bool,
@@ -313,7 +311,6 @@ def _create_task_tool(
         default_model=default_model,
         default_tools=default_tools,
         default_middleware=default_middleware,
-        general_purpose_middleware=general_purpose_middleware,
         default_interrupt_on=default_interrupt_on,
         subagents=subagents,
         general_purpose_agent=general_purpose_agent,
@@ -322,10 +319,12 @@ def _create_task_tool(
 
     def _return_command_with_state_update(result: dict, tool_call_id: str) -> Command:
         state_update = {k: v for k, v in result.items() if k not in _EXCLUDED_STATE_KEYS}
+        # Strip trailing whitespace to prevent API errors with Anthropic
+        message_text = result["messages"][-1].text.rstrip() if result["messages"][-1].text else ""
         return Command(
             update={
                 **state_update,
-                "messages": [ToolMessage(result["messages"][-1].text, tool_call_id=tool_call_id)],
+                "messages": [ToolMessage(message_text, tool_call_id=tool_call_id)],
             }
         )
 
@@ -353,7 +352,7 @@ def _create_task_tool(
             allowed_types = ", ".join([f"`{k}`" for k in subagent_graphs])
             return f"We cannot invoke subagent {subagent_type} because it does not exist, the only allowed types are {allowed_types}"
         subagent, subagent_state = _validate_and_prepare_state(subagent_type, description, runtime)
-        result = subagent.invoke(subagent_state)
+        result = subagent.invoke(subagent_state, runtime.config)
         if not runtime.tool_call_id:
             value_error_msg = "Tool call ID is required for subagent invocation"
             raise ValueError(value_error_msg)
@@ -368,7 +367,7 @@ def _create_task_tool(
             allowed_types = ", ".join([f"`{k}`" for k in subagent_graphs])
             return f"We cannot invoke subagent {subagent_type} because it does not exist, the only allowed types are {allowed_types}"
         subagent, subagent_state = _validate_and_prepare_state(subagent_type, description, runtime)
-        result = await subagent.ainvoke(subagent_state)
+        result = await subagent.ainvoke(subagent_state, runtime.config)
         if not runtime.tool_call_id:
             value_error_msg = "Tool call ID is required for subagent invocation"
             raise ValueError(value_error_msg)
@@ -449,7 +448,6 @@ class SubAgentMiddleware(AgentMiddleware):
         default_model: str | BaseChatModel,
         default_tools: Sequence[BaseTool | Callable | dict[str, Any]] | None = None,
         default_middleware: list[AgentMiddleware] | None = None,
-        general_purpose_middleware: list[AgentMiddleware] | None = None,
         default_interrupt_on: dict[str, bool | InterruptOnConfig] | None = None,
         subagents: list[SubAgent | CompiledSubAgent] | None = None,
         system_prompt: str | None = TASK_SYSTEM_PROMPT,
@@ -463,7 +461,6 @@ class SubAgentMiddleware(AgentMiddleware):
             default_model=default_model,
             default_tools=default_tools or [],
             default_middleware=default_middleware,
-            general_purpose_middleware=general_purpose_middleware,
             default_interrupt_on=default_interrupt_on,
             subagents=subagents or [],
             general_purpose_agent=general_purpose_agent,
