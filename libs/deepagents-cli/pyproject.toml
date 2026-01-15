@@ -67,7 +67,7 @@ build-backend = "setuptools.build_meta"
 include = ["deepagents_cli*"]
 
 [tool.setuptools.package-data]
-deepagents_cli = ["default_agent_prompt.md"]
+deepagents_cli = ["default_agent_prompt.md", "*.tcss", "py.typed"]
 
 [tool.ruff]
 line-length = 100
