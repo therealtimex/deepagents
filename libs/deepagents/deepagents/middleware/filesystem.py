@@ -36,10 +36,9 @@ from deepagents.backends.utils import (
 from deepagents.middleware._utils import append_to_system_message
 
 EMPTY_CONTENT_WARNING = "System reminder: File exists but has empty contents"
-MAX_LINE_LENGTH = 2000
 LINE_NUMBER_WIDTH = 6
 DEFAULT_READ_OFFSET = 0
-DEFAULT_READ_LIMIT = 500
+DEFAULT_READ_LIMIT = 100
 
 
 class FileData(TypedDict):
@@ -168,14 +167,14 @@ Assume this tool is able to read all files on the machine. If the User provides 
 
 Usage:
 - The file_path parameter must be an absolute path, not a relative path
-- By default, it reads up to 500 lines starting from the beginning of the file
+- By default, it reads up to 100 lines starting from the beginning of the file
 - **IMPORTANT for large files and codebase exploration**: Use pagination with offset and limit parameters to avoid context overflow
   - First scan: read_file(path, limit=100) to see file structure
   - Read more sections: read_file(path, offset=100, limit=200) for next 200 lines
   - Only omit limit (read full file) when necessary for editing
 - Specify offset and limit: read_file(path, offset=0, limit=100) reads first 100 lines
-- Any lines longer than 2000 characters will be truncated
 - Results are returned using cat -n format, with line numbers starting at 1
+- Lines longer than 5,000 characters will be split into multiple lines with continuation markers (e.g., 5.1, 5.2, etc.). When you specify a limit, these continuation lines count towards the limit.
 - You have the capability to call multiple tools in a single response. It is always better to speculatively read multiple files as a batch that are potentially useful.
 - If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents.
 - You should ALWAYS make sure a file has been read before editing it."""
@@ -350,52 +349,6 @@ def _ls_tool_generator(
     )
 
 
-def _truncate_lines(
-    text: str,
-    max_line_length: int = MAX_LINE_LENGTH,
-    *,
-    suffix: str | None = None,
-) -> str:
-    """Truncate each line in `text` to at most `max_line_length` characters.
-
-    - Preserves original newline characters.
-    - Safe for Unicode text.
-    - Optionally appends a suffix to truncated lines (e.g., "...[truncated]").
-
-    Args:
-        text: Input string (may contain newlines).
-        max_line_length: Maximum length per line.
-        suffix: Optional suffix added when truncation occurs.
-
-    Returns:
-        The truncated string.
-    """
-    if max_line_length < 0:
-        msg = "max_line_length must be non-negative"
-        raise ValueError(msg)
-
-    out: list[str] = []
-
-    for line in text.splitlines(keepends=True):
-        # Separate content from newline(s)
-        content = line.rstrip("\r\n")
-        newline = line[len(content) :]
-
-        if len(content) <= max_line_length:
-            out.append(line)
-            continue
-
-        if suffix:
-            cutoff = max(0, max_line_length - len(suffix))
-            truncated = content[:cutoff] + suffix
-        else:
-            truncated = content[:max_line_length]
-
-        out.append(truncated + newline)
-
-    return "".join(out)
-
-
 def _read_file_tool_generator(
     backend: BackendProtocol | Callable[[ToolRuntime], BackendProtocol],
     custom_description: str | None = None,
@@ -420,8 +373,14 @@ def _read_file_tool_generator(
         """Synchronous wrapper for read_file tool."""
         resolved_backend = _get_backend(backend, runtime)
         file_path = _validate_path(file_path)
-        content = resolved_backend.read(file_path, offset=offset, limit=limit)
-        return _truncate_lines(content, suffix="...[truncated]")
+        result = resolved_backend.read(file_path, offset=offset, limit=limit)
+
+        lines = result.splitlines(keepends=True)
+        if len(lines) > limit:
+            lines = lines[:limit]
+            result = "".join(lines)
+
+        return result
 
     async def async_read_file(
         file_path: str,
@@ -432,8 +391,14 @@ def _read_file_tool_generator(
         """Asynchronous wrapper for read_file tool."""
         resolved_backend = _get_backend(backend, runtime)
         file_path = _validate_path(file_path)
-        content = await resolved_backend.aread(file_path, offset=offset, limit=limit)
-        return _truncate_lines(content, suffix="...[truncated]")
+        result = await resolved_backend.aread(file_path, offset=offset, limit=limit)
+
+        lines = result.splitlines(keepends=True)
+        if len(lines) > limit:
+            lines = lines[:limit]
+            result = "".join(lines)
+
+        return result
 
     return StructuredTool.from_function(
         name="read_file",
