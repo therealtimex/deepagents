@@ -28,6 +28,7 @@ from deepagents.backends.protocol import BackendFactory, BackendProtocol
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.memory import MemoryMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
+from deepagents.middleware.shell import ShellMiddleware
 from deepagents.middleware.skills import SkillsMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgent, SubAgentMiddleware
 
@@ -65,6 +66,7 @@ def create_realtimex_deep_agent(
     debug: bool = False,
     name: str | None = None,
     cache: BaseCache | None = None,
+    enable_shell: bool = True,
 ) -> CompiledStateGraph:
     """Create a RealTimeX deep agent.
 
@@ -117,6 +119,7 @@ def create_realtimex_deep_agent(
         debug: Whether to enable debug mode. Passed through to `create_agent`.
         name: The name of the agent. Passed through to `create_agent`.
         cache: The cache to use for the agent. Passed through to `create_agent`.
+        enable_shell: Whether to enable the local shell tool middleware.
 
     Returns:
         A configured deep agent.
@@ -150,9 +153,16 @@ def create_realtimex_deep_agent(
 
     if skills is not None:
         subagent_middleware.append(SkillsMiddleware(backend=backend, sources=skills))
+    subagent_middleware.append(FilesystemMiddleware(backend=backend))
+    if enable_shell:
+        subagent_middleware.append(
+            ShellMiddleware(
+                backend=backend,
+                virtual_path_prefixes=skills or [],
+            )
+        )
     subagent_middleware.extend(
         [
-            FilesystemMiddleware(backend=backend),
             SummarizationMiddleware(
                 model=model,
                 trigger=trigger,
@@ -172,9 +182,16 @@ def create_realtimex_deep_agent(
         deepagent_middleware.append(MemoryMiddleware(backend=backend, sources=memory))
     if skills is not None:
         deepagent_middleware.append(SkillsMiddleware(backend=backend, sources=skills))
+    deepagent_middleware.append(FilesystemMiddleware(backend=backend))
+    if enable_shell:
+        deepagent_middleware.append(
+            ShellMiddleware(
+                backend=backend,
+                virtual_path_prefixes=skills or [],
+            )
+        )
     deepagent_middleware.extend(
         [
-            FilesystemMiddleware(backend=backend),
             SubAgentMiddleware(
                 default_model=model,
                 default_tools=tools,
