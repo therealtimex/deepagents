@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import shlex
 import subprocess
@@ -17,7 +18,9 @@ from langchain_core.tools.base import ToolException
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from deepagents.backends.protocol import BackendFactory, BackendProtocol
+from deepagents.backends.protocol import BackendFactory, BackendProtocol
+
+logger = logging.getLogger(__name__)
 
 SHELL_TOOL_DESCRIPTION = """Run a shell command on the host machine.
 
@@ -77,6 +80,8 @@ class ShellMiddleware(AgentMiddleware[AgentState, Any]):
         self._working_dir = working_dir or os.getcwd()  # noqa: PTH109
         self._temp_dir: str | None = None
         self._materialized_roots: dict[str, str] = {}
+        self._resolution_failures: dict[str, int] = {}
+        self._debug_enabled = True
 
         description = SHELL_TOOL_DESCRIPTION + f"\n\nWorking directory: {self._working_dir}"
 
@@ -97,6 +102,11 @@ class ShellMiddleware(AgentMiddleware[AgentState, Any]):
             prefixes = ", ".join(f"`{prefix}`" for prefix in self._normalize_prefixes())
             prompt += f"\nSkill paths under these roots are available for execution: {prefixes}"
         return prompt
+
+    def _debug(self, message: str) -> None:
+        if not self._debug_enabled:
+            return
+        logger.info("[DEBUG] %s", message)
 
     def wrap_model_call(
         self,
@@ -135,6 +145,7 @@ class ShellMiddleware(AgentMiddleware[AgentState, Any]):
         """Get or create temp directory for materialized files."""
         if self._temp_dir is None:
             self._temp_dir = tempfile.mkdtemp(prefix="realtimex-shell-")
+            self._debug(f"Created temp dir: {self._temp_dir}")
         return self._temp_dir
 
     def _normalize_prefixes(self) -> tuple[str, ...]:
@@ -180,6 +191,7 @@ class ShellMiddleware(AgentMiddleware[AgentState, Any]):
             if current in seen:
                 continue
             seen.add(current)
+            self._debug(f"Listing backend path: {current}")
 
             entries = backend.ls_info(current)
             for entry in entries:
@@ -211,6 +223,21 @@ class ShellMiddleware(AgentMiddleware[AgentState, Any]):
             Tuple of (temp_path, error). On success, temp_path is set and error is None.
             On failure, temp_path is None and error contains the error message.
         """
+        self._debug(f"Resolve path: {virtual_path}")
+        try:
+            entries = backend.ls_info(virtual_path)
+        except Exception as exc:  # noqa: BLE001
+            self._debug(f"ls_info error for {virtual_path}: {exc}")
+            entries = []
+
+        is_dir = any(
+            entry.get("is_dir") is True or entry.get("path", "").endswith("/")
+            for entry in entries
+        )
+        if is_dir:
+            self._debug(f"Detected directory: {virtual_path}")
+            return self._materialize_directory(virtual_path, backend)
+
         try:
             responses = backend.download_files([virtual_path])
         except Exception as e:  # noqa: BLE001
@@ -230,6 +257,7 @@ class ShellMiddleware(AgentMiddleware[AgentState, Any]):
         dest = Path(self._local_path_for(virtual_path))
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(response.content)
+        self._debug(f"Materialized file: {virtual_path} -> {dest}")
         return str(dest), None
 
     def _materialize_directory(
@@ -239,12 +267,14 @@ class ShellMiddleware(AgentMiddleware[AgentState, Any]):
     ) -> tuple[str | None, str | None]:
         """Download all files under a directory into the temp directory."""
         file_paths = self._list_files_recursive(backend, directory_path)
+        self._debug(f"Materializing directory: {directory_path} ({len(file_paths)} files)")
 
         # Ensure the directory exists locally even if empty
         local_root = Path(self._local_path_for(directory_path))
         local_root.mkdir(parents=True, exist_ok=True)
 
         if not file_paths:
+            self._debug(f"Empty directory materialized: {directory_path} -> {local_root}")
             return str(local_root), None
 
         try:
@@ -260,6 +290,7 @@ class ShellMiddleware(AgentMiddleware[AgentState, Any]):
             dest = Path(self._local_path_for(response.path))
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(response.content)
+            self._debug(f"Materialized file: {response.path} -> {dest}")
 
         return str(local_root), None
 
@@ -293,17 +324,21 @@ class ShellMiddleware(AgentMiddleware[AgentState, Any]):
             root = self._match_skill_root(part)
             if root is None:
                 continue
+            self._debug(f"Matched skill root: {root} for {part}")
             if root not in self._materialized_roots:
                 temp_root, error = self._materialize_virtual_path(root, backend)
                 if error:
+                    self._debug(f"Materialization error for {root}: {error}")
                     return command, error
                 if temp_root:
                     self._materialized_roots[root] = temp_root
+                    self._debug(f"Cached materialized root: {root} -> {temp_root}")
             local_root = self._materialized_roots.get(root)
             if local_root:
                 relative = part[len(root) :].lstrip("/")
                 resolved_path = Path(local_root) / relative if relative else Path(local_root)
                 parts[idx] = str(resolved_path)
+                self._debug(f"Resolved path: {part} -> {parts[idx]}")
 
         return shlex.join(parts), None
 
@@ -323,6 +358,15 @@ class ShellMiddleware(AgentMiddleware[AgentState, Any]):
         # Resolve skill paths in command
         resolved_command, resolve_error = self._resolve_command(command, runtime)
         if resolve_error:
+            failures = self._resolution_failures.get(command, 0) + 1
+            self._resolution_failures[command] = failures
+            if failures >= 2:
+                return ToolMessage(
+                    content=(f"{resolve_error}\n\nStop retrying the same command. List the directory and use the exact filename from the listing."),
+                    tool_call_id=tool_call_id,
+                    name=self._tool_name,
+                    status="error",
+                )
             return ToolMessage(
                 content=f"{resolve_error}\n\nCheck the file path and try again with the correct path.",
                 tool_call_id=tool_call_id,
@@ -331,6 +375,7 @@ class ShellMiddleware(AgentMiddleware[AgentState, Any]):
             )
 
         try:
+            self._debug(f"Executing command: {resolved_command}")
             result = subprocess.run(  # noqa: S602
                 resolved_command,
                 check=False,
