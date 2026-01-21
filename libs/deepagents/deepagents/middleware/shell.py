@@ -7,17 +7,17 @@ import shlex
 import subprocess
 import tempfile
 from pathlib import Path
-from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from langchain.agents.middleware.types import AgentMiddleware, AgentState
-from langchain.agents.middleware.types import ModelRequest, ModelResponse
+from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 from langchain_core.tools.base import ToolException
 
-from deepagents.backends.protocol import BackendFactory, BackendProtocol
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
+    from deepagents.backends.protocol import BackendFactory, BackendProtocol
 
 SHELL_TOOL_DESCRIPTION = """Run a shell command on the host machine.
 
@@ -78,10 +78,7 @@ class ShellMiddleware(AgentMiddleware[AgentState, Any]):
         self._temp_dir: str | None = None
         self._materialized_roots: dict[str, str] = {}
 
-        description = (
-            SHELL_TOOL_DESCRIPTION
-            + f"\n\nWorking directory: {self._working_dir}"
-        )
+        description = SHELL_TOOL_DESCRIPTION + f"\n\nWorking directory: {self._working_dir}"
 
         @tool(self._tool_name, description=description)
         def shell_tool(
@@ -98,10 +95,7 @@ class ShellMiddleware(AgentMiddleware[AgentState, Any]):
         prompt = SHELL_SYSTEM_PROMPT + f"\n\nWorking directory: `{self._working_dir}`"
         if self._virtual_path_prefixes:
             prefixes = ", ".join(f"`{prefix}`" for prefix in self._normalize_prefixes())
-            prompt += (
-                "\nSkill paths under these roots are available for execution: "
-                f"{prefixes}"
-            )
+            prompt += f"\nSkill paths under these roots are available for execution: {prefixes}"
         return prompt
 
     def wrap_model_call(
@@ -110,15 +104,10 @@ class ShellMiddleware(AgentMiddleware[AgentState, Any]):
         handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelResponse:
         """Inject shell tool guidance into the system prompt."""
-        has_shell_tool = any(
-            (tool.name if hasattr(tool, "name") else tool.get("name")) == self._tool_name
-            for tool in request.tools
-        )
+        has_shell_tool = any((tool.name if hasattr(tool, "name") else tool.get("name")) == self._tool_name for tool in request.tools)
         if has_shell_tool:
             prompt = self._build_system_prompt()
-            request = request.override(
-                system_prompt=request.system_prompt + "\n\n" + prompt if request.system_prompt else prompt
-            )
+            request = request.override(system_prompt=request.system_prompt + "\n\n" + prompt if request.system_prompt else prompt)
         return handler(request)
 
     async def awrap_model_call(
@@ -127,15 +116,10 @@ class ShellMiddleware(AgentMiddleware[AgentState, Any]):
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse:
         """(async) Inject shell tool guidance into the system prompt."""
-        has_shell_tool = any(
-            (tool.name if hasattr(tool, "name") else tool.get("name")) == self._tool_name
-            for tool in request.tools
-        )
+        has_shell_tool = any((tool.name if hasattr(tool, "name") else tool.get("name")) == self._tool_name for tool in request.tools)
         if has_shell_tool:
             prompt = self._build_system_prompt()
-            request = request.override(
-                system_prompt=request.system_prompt + "\n\n" + prompt if request.system_prompt else prompt
-            )
+            request = request.override(system_prompt=request.system_prompt + "\n\n" + prompt if request.system_prompt else prompt)
         return await handler(request)
 
     def _get_backend(self, runtime: ToolRuntime[None, AgentState]) -> BackendProtocol | None:
@@ -158,9 +142,9 @@ class ShellMiddleware(AgentMiddleware[AgentState, Any]):
         normalized: list[str] = []
         for prefix in self._virtual_path_prefixes:
             if not prefix.startswith("/"):
-                prefix = f"/{prefix}"
+                prefix = f"/{prefix}"  # noqa: PLW2901
             if not prefix.endswith("/"):
-                prefix = f"{prefix}/"
+                prefix = f"{prefix}/"  # noqa: PLW2901
             normalized.append(prefix)
         return tuple(normalized)
 
@@ -212,7 +196,7 @@ class ShellMiddleware(AgentMiddleware[AgentState, Any]):
 
         return files
 
-    def _materialize_virtual_path(
+    def _materialize_virtual_path(  # noqa: PLR0911
         self,
         virtual_path: str,
         backend: BackendProtocol,
