@@ -339,10 +339,12 @@ class ShellMiddleware(AgentMiddleware[AgentState, Any]):
         if not backend or not self._virtual_path_prefixes:
             return command, None
 
+        split_posix = os.name != "nt"
         try:
-            parts = shlex.split(command, posix=os.name != "nt")
+            parts = shlex.split(command, posix=split_posix)
         except ValueError:
             return command, None
+        self._debug(f"Split command (posix={split_posix}): {parts}")
 
         for idx, part in enumerate(parts):
             if not part.startswith("/"):
@@ -367,8 +369,12 @@ class ShellMiddleware(AgentMiddleware[AgentState, Any]):
                 self._debug(f"Resolved path: {part} -> {parts[idx]}")
 
         if os.name == "nt":
-            return subprocess.list2cmdline(parts), None
-        return shlex.join(parts), None
+            resolved = subprocess.list2cmdline(parts)
+            self._debug(f"Resolved command (win32): {resolved!r}")
+            return resolved, None
+        resolved = shlex.join(parts)
+        self._debug(f"Resolved command (posix): {resolved!r}")
+        return resolved, None
 
     def _run_command(
         self,
