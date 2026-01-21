@@ -24,14 +24,38 @@ logger = logging.getLogger(__name__)
 
 SHELL_TOOL_DESCRIPTION = """Run a shell command on the host machine.
 
-Usage:
-- Provide a single command string.
-- Commands run in the working directory shown below.
-- Output includes stdout/stderr and exit code; large output may be truncated.
-- Use this tool to run scripts or commands. Use filesystem tools to read/edit files.
-- VERY IMPORTANT: You MUST avoid shell search commands like `find` and `grep`. Use the `glob`
-  and `grep` tools instead. You MUST avoid shell file-reading commands like `cat`, `head`,
-  and `tail`; use `read_file` to read file contents.
+Before executing the command, follow these steps:
+
+1. Path Verification:
+   - If you will create files or directories, first use `ls` to verify the parent path exists
+   - Use exact paths from `ls` output or user-provided paths; do not guess filenames or paths
+
+2. Command Execution:
+   - Always quote file paths that contain spaces (e.g., python "path with spaces/script.py")
+   - Prefer absolute paths and avoid `cd` to change directories
+   - Execute the command and capture the output
+
+Usage notes:
+  - The command parameter is required
+  - Commands run in the working directory shown below
+  - Output includes stdout/stderr and exit code; large output may be truncated
+  - VERY IMPORTANT: You MUST avoid shell search commands like `find` and `grep`. Use the `glob`
+    and `grep` tools instead. You MUST avoid shell file-reading commands like `cat`, `head`,
+    and `tail`; use `read_file` to read file contents.
+  - When issuing multiple commands, use `;` or `&&` instead of newlines
+  - Use `&&` when commands depend on each other, `;` when they do not
+
+Examples:
+  Good examples:
+    - shell(command="python /path/to/script.py")
+    - shell(command="pytest /path/to/tests")
+    - shell(command="npm install && npm test")
+
+  Bad examples (avoid these):
+    - shell(command="cd /path && pytest tests")  # Use absolute paths instead
+    - shell(command="cat file.txt")  # Use read_file instead
+    - shell(command="find . -name '*.py'")  # Use glob instead
+    - shell(command="grep -r 'pattern' .")  # Use grep tool instead
 """
 
 SHELL_SYSTEM_PROMPT = """## Shell Tool `shell`
@@ -42,6 +66,8 @@ Use it for running scripts, tests, and other command-line operations.
 - shell: run a shell command (returns combined output and exit code)
 - Avoid shell search commands like `find`/`grep`; use `glob` and `grep` tools instead.
 - Avoid shell file-reading commands like `cat`/`head`/`tail`; use `read_file` instead.
+- Quote paths with spaces and prefer absolute paths (avoid `cd`).
+- Use exact paths from `ls` output or user-provided paths; do not guess filenames or paths.
 """
 
 
