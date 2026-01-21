@@ -340,7 +340,7 @@ class ShellMiddleware(AgentMiddleware[AgentState, Any]):
             return command, None
 
         try:
-            parts = shlex.split(command)
+            parts = shlex.split(command, posix=os.name != "nt")
         except ValueError:
             return command, None
 
@@ -366,6 +366,8 @@ class ShellMiddleware(AgentMiddleware[AgentState, Any]):
                 parts[idx] = str(resolved_path)
                 self._debug(f"Resolved path: {part} -> {parts[idx]}")
 
+        if os.name == "nt":
+            return subprocess.list2cmdline(parts), None
         return shlex.join(parts), None
 
     def _run_command(
