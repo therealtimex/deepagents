@@ -120,6 +120,21 @@ def get_system_prompt(assistant_id: str, sandbox_type: str | None = None) -> str
     """
     agent_dir_path = f"~/.deepagents/{assistant_id}"
 
+    # Build model identity section
+    model_identity_section = ""
+    if settings.model_name:
+        model_identity_section = f"""### Model Identity
+
+You are running as model `{settings.model_name}`"""
+        if settings.model_provider:
+            model_identity_section += f" (provider: {settings.model_provider})"
+        model_identity_section += ".\n"
+        if settings.model_context_limit:
+            model_identity_section += (
+                f"Your context window is {settings.model_context_limit:,} tokens.\n"
+            )
+        model_identity_section += "\n"
+
     if sandbox_type:
         # Get provider-specific working directory
 
@@ -153,7 +168,8 @@ The filesystem backend is currently operating in: `{cwd}`
 """  # noqa: E501
 
     return (
-        working_dir_section
+        model_identity_section
+        + working_dir_section
         + f"""### Skills Directory
 
 Your skills are stored at: `{agent_dir_path}/skills/`
@@ -333,37 +349,37 @@ def _add_interrupt_on() -> dict[str, InterruptOnConfig]:
     """
     shell_interrupt_config: InterruptOnConfig = {
         "allowed_decisions": ["approve", "reject"],
-        "description": _format_shell_description,
+        "description": _format_shell_description,  # type: ignore[typeddict-item]
     }
 
     execute_interrupt_config: InterruptOnConfig = {
         "allowed_decisions": ["approve", "reject"],
-        "description": _format_execute_description,
+        "description": _format_execute_description,  # type: ignore[typeddict-item]
     }
 
     write_file_interrupt_config: InterruptOnConfig = {
         "allowed_decisions": ["approve", "reject"],
-        "description": _format_write_file_description,
+        "description": _format_write_file_description,  # type: ignore[typeddict-item]
     }
 
     edit_file_interrupt_config: InterruptOnConfig = {
         "allowed_decisions": ["approve", "reject"],
-        "description": _format_edit_file_description,
+        "description": _format_edit_file_description,  # type: ignore[typeddict-item]
     }
 
     web_search_interrupt_config: InterruptOnConfig = {
         "allowed_decisions": ["approve", "reject"],
-        "description": _format_web_search_description,
+        "description": _format_web_search_description,  # type: ignore[typeddict-item]
     }
 
     fetch_url_interrupt_config: InterruptOnConfig = {
         "allowed_decisions": ["approve", "reject"],
-        "description": _format_fetch_url_description,
+        "description": _format_fetch_url_description,  # type: ignore[typeddict-item]
     }
 
     task_interrupt_config: InterruptOnConfig = {
         "allowed_decisions": ["approve", "reject"],
-        "description": _format_task_description,
+        "description": _format_task_description,  # type: ignore[typeddict-item]
     }
     return {
         "shell": shell_interrupt_config,
@@ -519,12 +535,13 @@ def create_cli_agent(
         )
 
     # Configure interrupt_on based on auto_approve setting
+    interrupt_on: dict[str, bool | InterruptOnConfig] | None = None
     if auto_approve:
         # No interrupts - all tools run automatically
         interrupt_on = {}
     else:
         # Full HITL for destructive operations
-        interrupt_on = _add_interrupt_on()
+        interrupt_on = _add_interrupt_on()  # type: ignore[assignment]
 
     # Set up composite backend with routing
     # For local FilesystemBackend, route large tool results to /tmp to avoid polluting

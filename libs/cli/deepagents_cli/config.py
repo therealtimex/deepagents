@@ -168,6 +168,7 @@ class Settings:
     # Model configuration
     model_name: str | None = None  # Currently active model name
     model_provider: str | None = None  # Provider (openai, anthropic, google)
+    model_context_limit: int | None = None  # Max input tokens from model profile
 
     # Project information
     project_root: Path | None = None
@@ -396,6 +397,8 @@ class Settings:
         if not self.project_root:
             return None
         skills_dir = self.get_project_skills_dir()
+        if skills_dir is None:
+            return None
         skills_dir.mkdir(parents=True, exist_ok=True)
         return skills_dir
 
@@ -585,32 +588,35 @@ def create_model(model_name_override: str | None = None) -> BaseChatModel:
     settings.model_name = model_name
     settings.model_provider = provider
 
-    # Create and return the model
+    # Create the model
+    model: BaseChatModel
     if provider == "openai":
         from langchain_openai import ChatOpenAI
 
-        return ChatOpenAI(model=model_name)
-    if provider == "anthropic":
+        model = ChatOpenAI(model=model_name)  # type: ignore[call-arg]
+    elif provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
 
-        return ChatAnthropic(
+        model = ChatAnthropic(
             model_name=model_name,
-            max_tokens=20_000,  # type: ignore[arg-type]
+            max_tokens=20_000,
         )
-    if provider == "google":
+    elif provider == "google":
         from langchain_google_genai import ChatGoogleGenerativeAI
 
-        return ChatGoogleGenerativeAI(
+        model = ChatGoogleGenerativeAI(
             model=model_name,
             temperature=0,
             max_tokens=None,
         )
-    if provider == "vertexai":
+    elif provider == "vertexai":
         model_lower = model_name.lower()
 
         if "claude" in model_lower:
             try:
-                from langchain_google_vertexai.model_garden import ChatAnthropicVertex
+                from langchain_google_vertexai.model_garden import (  # type: ignore[unresolved-import]
+                    ChatAnthropicVertex,
+                )
             except ImportError:
                 console.print(
                     "[bold red]Error:[/bold red] langchain-google-vertexai "
@@ -620,7 +626,7 @@ def create_model(model_name_override: str | None = None) -> BaseChatModel:
                 console.print("  pip install deepagents-cli[vertexai]", markup=False)
                 sys.exit(1)
 
-            return ChatAnthropicVertex(
+            model = ChatAnthropicVertex(
                 # Remove version tag (e.g., "claude-haiku-4-5@20251015" ->
                 # "claude-haiku-4-5"). ChatAnthropicVertex expects just the base
                 # model name without the @version suffix.
@@ -629,20 +635,27 @@ def create_model(model_name_override: str | None = None) -> BaseChatModel:
                 location=os.environ.get("GOOGLE_CLOUD_LOCATION"),
                 max_tokens=20_000,
             )
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        else:
+            from langchain_google_genai import ChatGoogleGenerativeAI
 
-        return ChatGoogleGenerativeAI(
-            model=model_name,
-            project=settings.google_cloud_project,
-            vertexai=True,
-            temperature=0,
-            max_tokens=None,
-        )
+            model = ChatGoogleGenerativeAI(
+                model=model_name,
+                project=settings.google_cloud_project,
+                vertexai=True,
+                temperature=0,
+                max_tokens=None,
+            )
+    else:
+        # Should not reach here due to earlier validation
+        console.print(f"[bold red]Error:[/bold red] Unknown provider: {provider}")
+        sys.exit(1)
 
-    # This should be unreachable since all valid providers are handled above,
-    # but we need an explicit return/raise for type safety (RET503)
-    console.print(f"[bold red]Error:[/bold red] Unknown provider: {provider}")
-    sys.exit(1)
+    # Extract context limit from model profile (if available)
+    profile = getattr(model, "profile", None)
+    if isinstance(profile, dict) and isinstance(profile.get("max_input_tokens"), int):
+        settings.model_context_limit = profile["max_input_tokens"]
+
+    return model
 
 
 def validate_model_capabilities(model: BaseChatModel, model_name: str) -> None:
