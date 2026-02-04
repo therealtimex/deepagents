@@ -110,14 +110,20 @@ def reset_agent(agent_name: str, source_agent: str | None = None) -> None:
 def get_system_prompt(assistant_id: str, sandbox_type: str | None = None) -> str:
     """Get the base system prompt for the agent.
 
+    This includes:
+    1. The immutable base instructions from default_agent_prompt.md
+    2. Environment-specific context (working directory, model info, etc.)
+
     Args:
         assistant_id: The agent identifier for path references
         sandbox_type: Type of sandbox provider ("modal", "runloop", "daytona").
                      If None, agent is operating in local mode.
 
     Returns:
-        The system prompt string (without AGENTS.md content)
+        The system prompt string (base instructions + environment context)
     """
+    # Always load base instructions fresh from package
+    base_instructions = get_default_coding_instructions()
     agent_dir_path = f"~/.deepagents/{assistant_id}"
 
     # Build model identity section
@@ -168,7 +174,9 @@ The filesystem backend is currently operating in: `{cwd}`
 """  # noqa: E501
 
     return (
-        model_identity_section
+        base_instructions
+        + "\n\n---\n\n"
+        + model_identity_section
         + working_dir_section
         + f"""### Skills Directory
 
@@ -442,8 +450,9 @@ def create_cli_agent(
         agent_dir = settings.ensure_agent_dir(assistant_id)
         agent_md = agent_dir / "AGENTS.md"
         if not agent_md.exists():
-            source_content = get_default_coding_instructions()
-            agent_md.write_text(source_content)
+            # Create empty file for user customizations
+            # Base instructions are loaded fresh from get_system_prompt()
+            agent_md.touch()
 
     # Skills directories (if enabled)
     skills_dir = None
