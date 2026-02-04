@@ -164,23 +164,23 @@ jobs:
           # Determine previous tag (same logic as release-notes job)
           if [[ "$VERSION" == *"-"* ]]; then
             BASE_VERSION=${VERSION%%-*}
-            REGEX="^$PKG_NAME@$BASE_VERSION\$"
+            REGEX="^$PKG_NAME==$BASE_VERSION\$"
             PREV_TAG=$(git tag --sort=-creatordate | (grep -P "$REGEX" || true) | head -1)
             if [ -z "$PREV_TAG" ]; then
-              REGEX="^$PKG_NAME@\\d+\\.\\d+\\.\\d+\$"
+              REGEX="^$PKG_NAME==\\d+\\.\\d+\\.\\d+\$"
               PREV_TAG=$(git tag --sort=-creatordate | (grep -P "$REGEX" || true) | head -1)
             fi
           else
-            PREV_TAG="$PKG_NAME@${VERSION%.*}.$(( ${VERSION##*.} - 1 ))"
+            PREV_TAG="$PKG_NAME==${VERSION%.*}.$(( ${VERSION##*.} - 1 ))"
             [[ "${VERSION##*.}" -eq 0 ]] && PREV_TAG=""
             if [ -z "$PREV_TAG" ]; then
-              REGEX="^$PKG_NAME@\\d+\\.\\d+\\.\\d+\$"
+              REGEX="^$PKG_NAME==\\d+\\.\\d+\\.\\d+\$"
               PREV_TAG=$(git tag --sort=-creatordate | (grep -P "$REGEX" || true) | head -1)
             fi
           fi
 
           # Validate prev tag exists
-          if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$PKG_NAME@0.0.0" ]; then
+          if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$PKG_NAME==0.0.0" ]; then
             GIT_TAG_RESULT=$(git tag -l "$PREV_TAG")
             if [ -z "$GIT_TAG_RESULT" ]; then
               PREV_TAG=""
@@ -314,7 +314,7 @@ jobs:
           PKG_NAME: ${{ needs.build.outputs.pkg-name }}
           VERSION: ${{ needs.build.outputs.version }}
         run: |
-          TAG="${PKG_NAME}@${VERSION}"
+          TAG="${PKG_NAME}==${VERSION}"
           echo tag="$TAG" >> $GITHUB_OUTPUT
 
       - name: Generate release body
@@ -360,23 +360,23 @@ jobs:
             # Determine previous tag
             if [[ "$VERSION" == *"-"* ]]; then
               BASE_VERSION=${VERSION%%-*}
-              REGEX="^$PKG_NAME@$BASE_VERSION\$"
+              REGEX="^$PKG_NAME==$BASE_VERSION\$"
               PREV_TAG=$(git tag --sort=-creatordate | (grep -P "$REGEX" || true) | head -1)
               if [ -z "$PREV_TAG" ]; then
-                REGEX="^$PKG_NAME@\\d+\\.\\d+\\.\\d+\$"
+                REGEX="^$PKG_NAME==\\d+\\.\\d+\\.\\d+\$"
                 PREV_TAG=$(git tag --sort=-creatordate | (grep -P "$REGEX" || true) | head -1)
               fi
             else
-              PREV_TAG="$PKG_NAME@${VERSION%.*}.$(( ${VERSION##*.} - 1 ))"
+              PREV_TAG="$PKG_NAME==${VERSION%.*}.$(( ${VERSION##*.} - 1 ))"
               [[ "${VERSION##*.}" -eq 0 ]] && PREV_TAG=""
               if [ -z "$PREV_TAG" ]; then
-                REGEX="^$PKG_NAME@\\d+\\.\\d+\\.\\d+\$"
+                REGEX="^$PKG_NAME==\\d+\\.\\d+\\.\\d+\$"
                 PREV_TAG=$(git tag --sort=-creatordate | (grep -P "$REGEX" || true) | head -1)
               fi
             fi
 
             # Validate prev tag exists
-            if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$PKG_NAME@0.0.0" ]; then
+            if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$PKG_NAME==0.0.0" ]; then
               GIT_TAG_RESULT=$(git tag -l "$PREV_TAG")
               [ -z "$GIT_TAG_RESULT" ] && PREV_TAG=""
             else
@@ -593,6 +593,8 @@ jobs:
       # This permission is needed by `ncipollo/release-action` to
       # create the GitHub release/tag
       contents: write
+      # This permission is needed to update release PR labels
+      pull-requests: write
     env:
       WORKING_DIR: ${{ needs.setup.outputs.working-dir }}
 
@@ -619,9 +621,24 @@ jobs:
           artifacts: "${{ env.WORKING_DIR }}/dist/*"
           token: ${{ secrets.GITHUB_TOKEN }}
           generateReleaseNotes: false
-          tag: ${{ needs.build.outputs.pkg-name }}@${{ needs.build.outputs.version }}
+          tag: ${{ needs.build.outputs.pkg-name }}==${{ needs.build.outputs.version }}
           body: ${{ needs.release-notes.outputs.release-body }}
           commit: ${{ github.sha }}
           makeLatest: ${{ needs.build.outputs.pkg-name == 'deepagents' }}
           # CLI uses draft releases for manual review before PyPI publish
           draft: ${{ needs.build.outputs.pkg-name == 'deepagents-cli' }}
+
+      # Mark the release PR as tagged so release-please knows it's been released
+      # This is required because skip-github-release is true in release-please config
+      - name: Update release PR label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Find the release PR that was merged (look for PR associated with this commit)
+          PR_NUMBER=$(gh api "/repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" --jq '.[0].number // empty')
+          if [ -n "$PR_NUMBER" ]; then
+            echo "Found release PR #$PR_NUMBER, updating labels..."
+            gh pr edit "$PR_NUMBER" --remove-label "autorelease: pending" --add-label "autorelease: tagged" || true
+          else
+            echo "No PR found for commit ${{ github.sha }}, skipping label update"
+          fi
