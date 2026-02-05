@@ -221,7 +221,7 @@ def show_help() -> None:
 
     console.print("[bold]Usage:[/bold]", style=COLORS["primary"])
     console.print(
-        "  deepagents [OPTIONS]                           Start interactive session"
+        "  deepagents [OPTIONS]                           Start interactive thread"
     )
     console.print(
         "  deepagents list                                List all available agents"
@@ -274,7 +274,7 @@ def show_help() -> None:
         style=COLORS["dim"],
     )
     console.print(
-        "  deepagents -r                           # Resume most recent session",
+        "  deepagents -r                           # Resume most recent thread",
         style=COLORS["dim"],
     )
     console.print(
@@ -293,11 +293,11 @@ def show_help() -> None:
 
     console.print("[bold]Thread Management:[/bold]", style=COLORS["primary"])
     console.print(
-        "  deepagents threads list                 # List all sessions",
+        "  deepagents threads list                 # List all threads",
         style=COLORS["dim"],
     )
     console.print(
-        "  deepagents threads delete <ID>          # Delete a session",
+        "  deepagents threads delete <ID>          # Delete a thread",
         style=COLORS["dim"],
     )
     console.print()
