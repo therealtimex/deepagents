@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import ast
+import json
+import re
 from dataclasses import dataclass
+from pathlib import Path
 from time import time
 from typing import TYPE_CHECKING, Any
 
@@ -604,9 +608,6 @@ class ToolCallMessage(Vertical):
         Returns:
             List of todo items, or None if parsing fails.
         """
-        import ast
-        import re
-
         list_match = re.search(r"\[(\{.*\})\]", output.replace("\n", " "), re.DOTALL)
         if list_match:
             try:
@@ -674,9 +675,6 @@ class ToolCallMessage(Vertical):
         Returns:
             FormattedOutput with directory listing and optional truncation info.
         """
-        import ast
-        from pathlib import Path
-
         # Try to parse as a Python list (common format)
         try:
             items = ast.literal_eval(output)
@@ -738,9 +736,6 @@ class ToolCallMessage(Vertical):
         Returns:
             FormattedOutput with search results and optional truncation info.
         """
-        import ast
-        from pathlib import Path
-
         # Try to parse as a Python list (glob returns list of paths)
         try:
             items = ast.literal_eval(output.strip())
@@ -832,9 +827,6 @@ class ToolCallMessage(Vertical):
         Returns:
             Parsed dict if successful, None otherwise.
         """
-        import ast
-        import json
-
         try:
             if output.strip().startswith("{"):
                 return json.loads(output)
