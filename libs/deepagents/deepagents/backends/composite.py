@@ -172,6 +172,28 @@ class CompositeBackend:
         path: str | None = None,
         glob: str | None = None,
     ) -> list[GrepMatch] | str:
+        """Search files for literal text pattern.
+
+        Routes to backends based on path: specific route searches one backend,
+        "/" or None searches all backends, otherwise searches default backend.
+
+        Args:
+            pattern: Literal text to search for (NOT regex).
+            path: Directory to search. None searches all backends.
+            glob: Glob pattern to filter files (e.g., "*.py", "**/*.txt").
+                Filters by filename, not content.
+
+        Returns:
+            List of GrepMatch dicts with path (route prefix restored), line
+            (1-indexed), and text. Returns error string on failure.
+
+        Examples:
+            ```python
+            matches = composite.grep_raw("TODO", path="/memories/")
+            matches = composite.grep_raw("error", path="/")
+            matches = composite.grep_raw("import", path="/", glob="*.py")
+            ```
+        """
         # If path targets a specific route, search only that backend
         for route_prefix, backend in self.sorted_routes:
             if path is not None and path.startswith(route_prefix.rstrip("/")):
