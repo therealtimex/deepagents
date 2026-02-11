@@ -18,6 +18,7 @@ from acp import (
     update_agent_message,
     update_tool_call,
 )
+from acp.exceptions import RequestError
 from acp.interfaces import Client
 from acp.schema import (
     AgentCapabilities,
@@ -282,10 +283,13 @@ class AgentServerACP(ACPAgent):
 
                 # Initialize accumulator for this index if we have id and name
                 if chunk_id and chunk_name:
-                    if (
-                        chunk_index not in tool_call_accumulator
-                        or chunk_id != tool_call_accumulator[chunk_index]
-                    ):
+                    if chunk_index not in tool_call_accumulator:
+                        tool_call_accumulator[chunk_index] = {
+                            "id": chunk_id,
+                            "name": chunk_name,
+                            "args_str": "",
+                        }
+                    elif chunk_id != tool_call_accumulator[chunk_index].get("id"):
                         tool_call_accumulator[chunk_index] = {
                             "id": chunk_id,
                             "name": chunk_name,
@@ -297,7 +301,7 @@ class AgentServerACP(ACPAgent):
                     tool_call_accumulator[chunk_index]["args_str"] += chunk_args
 
             # After processing chunks, try to start any tool calls with complete args
-            for index, acc in tool_call_accumulator.items():
+            for index, acc in list(tool_call_accumulator.items()):
                 tool_id = acc.get("id")
                 tool_name = acc.get("name")
                 args_str = acc.get("args_str", "")
@@ -447,17 +451,65 @@ class AgentServerACP(ACPAgent):
                 self._cancelled = False  # Reset for next prompt
                 return PromptResponse(stop_reason="cancelled")
 
-            async for message_chunk, metadata in self._agent.astream(
+            async for stream_chunk in self._agent.astream(
                 Command(resume={"decisions": user_decisions})
                 if user_decisions
                 else {"messages": [{"role": "user", "content": content_blocks}]},
                 config=config,
-                stream_mode="messages",
+                stream_mode=["messages", "updates"],
+                subgraphs=True,
             ):
+                if not isinstance(stream_chunk, tuple) or len(stream_chunk) != 3:
+                    continue
+
+                _namespace, stream_mode, data = stream_chunk
                 # Check for cancellation during streaming
                 if self._cancelled:
                     self._cancelled = False  # Reset for next prompt
                     return PromptResponse(stop_reason="cancelled")
+
+                if stream_mode == "updates":
+                    updates = data
+                    if isinstance(updates, dict) and "__interrupt__" in updates:
+                        interrupt_objs = updates.get("__interrupt__")
+                        if interrupt_objs:
+                            for interrupt_obj in interrupt_objs:
+                                interrupt_value = interrupt_obj.value
+                                if not isinstance(interrupt_value, dict):
+                                    raise RequestError(
+                                        -32600,
+                                        (
+                                            "ACP limitation: this agent raised a free-form "
+                                            "LangGraph interrupt(), which ACP cannot display.\n\n"
+                                            "ACP only supports human-in-the-loop permission "
+                                            "prompts with a fixed set of decisions "
+                                            "(approve/reject/edit).\n"
+                                            "Spec: https://agentclientprotocol.com/protocol/overview\n\n"
+                                            "Fix: use LangChain HumanInTheLoopMiddleware-style "
+                                            "interrupts (action_requests/review_configs).\n"
+                                            "Docs: https://docs.langchain.com/oss/python/langchain/"
+                                            "human-in-the-loop\n\n"
+                                            "This is a protocol limitation, not a bug in the agent."
+                                        ),
+                                        {"interrupt_value": interrupt_value},
+                                    )
+
+                            current_state = await self._agent.aget_state(config)
+                            user_decisions = await self._handle_interrupts(
+                                current_state=current_state,
+                                session_id=session_id,
+                            )
+                            break
+
+                    for node_name, update in updates.items():
+                        if node_name == "tools" and isinstance(update, dict) and "todos" in update:
+                            todos = update.get("todos", [])
+                            if todos:
+                                await self._handle_todo_update(session_id, todos, log_plan=False)
+
+                    continue
+
+                message_chunk, metadata = data
 
                 # Process tool call chunks
                 await self._process_tool_call_chunks(
@@ -468,7 +520,8 @@ class AgentServerACP(ACPAgent):
                 )
 
                 if isinstance(message_chunk, str):
-                    await self._log_text(text=message_chunk, session_id=session_id)
+                    if not _namespace:
+                        await self._log_text(text=message_chunk, session_id=session_id)
                 # Check for tool results (ToolMessage responses)
                 elif hasattr(message_chunk, "type") and message_chunk.type == "tool":
                     # This is a tool result message
@@ -501,7 +554,7 @@ class AgentServerACP(ACPAgent):
                     else:
                         text = str(message_chunk.content)
 
-                    if text:
+                    if text and not _namespace:
                         await self._log_text(text=text, session_id=session_id)
 
             # Check if the agent is interrupted (waiting for HITL approval)
@@ -509,14 +562,11 @@ class AgentServerACP(ACPAgent):
             user_decisions = await self._handle_interrupts(
                 current_state=current_state,
                 session_id=session_id,
-                active_tool_calls=active_tool_calls,
             )
 
         return PromptResponse(stop_reason="end_turn")
 
-    async def _handle_interrupts(
-        self, *, current_state: StateSnapshot, session_id: str, active_tool_calls: dict
-    ):
+    async def _handle_interrupts(self, *, current_state: StateSnapshot, session_id: str):
         user_decisions = []
         if current_state.next and current_state.interrupts:
             # Agent is interrupted, request permission from user
