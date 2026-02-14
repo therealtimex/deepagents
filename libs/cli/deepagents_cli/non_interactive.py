@@ -38,13 +38,13 @@ from rich.text import Text
 from deepagents_cli.agent import DEFAULT_AGENT_NAME, create_cli_agent
 from deepagents_cli.config import (
     SHELL_TOOL_NAMES,
+    build_langsmith_thread_url,
     create_model,
-    fetch_langsmith_project_url,
-    get_langsmith_project_name,
     is_shell_command_allowed,
     settings,
 )
 from deepagents_cli.file_ops import FileOpTracker
+from deepagents_cli.model_config import ModelConfigError
 from deepagents_cli.sessions import generate_thread_id, get_checkpointer
 from deepagents_cli.tools import fetch_url, http_request, web_search
 
@@ -103,6 +103,9 @@ class StreamState:
         quiet: When `True`, diagnostic formatting that would otherwise go
             to stdout (e.g. separator newlines before tool notifications)
             is suppressed so that stdout contains only agent response text.
+        stream: When `True` (default), text chunks are written to stdout
+            as they arrive. When `False`, text is buffered in `full_response`
+            and flushed after the agent finishes.
         full_response: Accumulated text fragments from the AI message stream.
         tool_call_buffers: Maps a tool-call index or ID to its name/ID
             metadata for in-progress tool calls.
@@ -118,6 +121,7 @@ class StreamState:
     """
 
     quiet: bool = False
+    stream: bool = True
     full_response: list[str] = field(default_factory=list)
     tool_call_buffers: dict[int | str, dict[str, str | None]] = field(
         default_factory=dict
@@ -175,8 +179,10 @@ def _process_ai_message(
 ) -> None:
     """Extract text and tool-call blocks from an AI message and render them.
 
-    Text blocks are streamed to stdout; tool-call blocks are buffered and
-    their names are printed to the console.
+    When streaming is enabled, text blocks are written to stdout immediately;
+    otherwise they are accumulated in `state.full_response` for deferred
+    output. Tool-call blocks are buffered and their names are printed to the
+    console.
 
     Args:
         message_obj: The `AIMessage` received from the stream.
@@ -193,7 +199,8 @@ def _process_ai_message(
         if block_type == "text":
             text = block.get("text", "")
             if text:
-                _write_text(text)
+                if state.stream:
+                    _write_text(text)
                 state.full_response.append(text)
         elif block_type in {"tool_call_chunk", "tool_call"}:
             chunk_name = block.get("name")
@@ -418,6 +425,7 @@ async def _run_agent_loop(
     file_op_tracker: FileOpTracker,
     *,
     quiet: bool = False,
+    stream: bool = True,
 ) -> None:
     """Run the agent and handle HITL interrupts until the task completes.
 
@@ -431,11 +439,15 @@ async def _run_agent_loop(
         console: Rich console for formatted output.
         file_op_tracker: Tracker for file-operation diffs.
         quiet: Suppress diagnostic formatting on stdout.
+        stream: When `True`, text is written to stdout as it arrives.
+
+            When `False`, the full response is buffered and flushed at
+            the end.
 
     Raises:
         HITLIterationLimitError: If the HITL iteration limit is exceeded.
     """
-    state = StreamState(quiet=quiet)
+    state = StreamState(quiet=quiet, stream=stream)
     stream_input: dict[str, Any] | Command = {
         "messages": [{"role": "user", "content": message}]
     }
@@ -462,13 +474,13 @@ async def _run_agent_loop(
         )
 
     if state.full_response:
+        if not state.stream:
+            _write_text("".join(state.full_response))
         _write_newline()
 
     if not quiet:
         console.print()
         console.print("[green]✓ Task completed[/green]")
-    else:
-        console.print("[green]✓ Task completed (response written to stdout)[/green]")
 
 
 def _build_non_interactive_header(assistant_id: str, thread_id: str) -> Text:
@@ -495,7 +507,7 @@ def _build_non_interactive_header(assistant_id: str, thread_id: str) -> Text:
     parts.append((" | ", "dim"))
 
     # Attempt to build a clickable thread link via LangSmith
-    thread_url = _get_thread_url(thread_id)
+    thread_url = build_langsmith_thread_url(thread_id)
     if thread_url:
         parts.extend(
             [
@@ -509,41 +521,17 @@ def _build_non_interactive_header(assistant_id: str, thread_id: str) -> Text:
     return Text.assemble(*parts)
 
 
-def _get_thread_url(thread_id: str) -> str | None:
-    """Build a LangSmith thread URL if tracing is configured.
-
-    Delegates to shared helpers in `config` for env-var checks and the
-    LangSmith client call, avoiding duplication with the interactive
-    welcome banner.
-
-    Args:
-        thread_id: Thread identifier to build the URL for.
-
-    Returns:
-        Full thread URL string, or None if LangSmith is not configured.
-    """
-    project_name = get_langsmith_project_name()
-    if not project_name:
-        logger.debug("LangSmith project name not configured, skipping thread URL")
-        return None
-
-    project_url = fetch_langsmith_project_url(project_name)
-    if not project_url:
-        logger.debug("Could not fetch LangSmith project URL for %r", project_name)
-        return None
-
-    return f"{project_url.rstrip('/')}/t/{thread_id}"
-
-
 async def run_non_interactive(
     message: str,
     assistant_id: str = "agent",
     model_name: str | None = None,
+    model_params: dict[str, Any] | None = None,
     sandbox_type: str = "none",  # str (not None) to match argparse choices
     sandbox_id: str | None = None,
     sandbox_setup: str | None = None,
     *,
     quiet: bool = False,
+    stream: bool = True,
 ) -> int:
     """Run a single task non-interactively and exit.
 
@@ -561,14 +549,22 @@ async def run_non_interactive(
         message: The task/message to execute.
         assistant_id: Agent identifier for memory storage.
         model_name: Optional model name to use.
+        model_params: Extra kwargs from `--model-params` to pass to the model.
+
+            These override config file values.
         sandbox_type: Type of sandbox (`'none'`, `'modal'`,
-            `'runloop'`, `'daytona'`).
+            `'runloop'`, `'daytona'`, `'langsmith'`).
         sandbox_id: Optional existing sandbox ID to reuse.
         sandbox_setup: Optional path to setup script to run in the sandbox
             after creation.
         quiet: When `True`, all console output (headers, status messages,
             tool notifications, HITL decisions, errors) is redirected to
             stderr so that only the agent's response text appears on stdout.
+        stream: When `True` (default), text chunks are written to stdout
+            as they arrive.
+
+            When `False`, the full response is buffered and written to stdout in
+            one shot after the agent finishes.
 
     Returns:
         Exit code: 0 for success, 1 for error, 130 for keyboard interrupt.
@@ -576,7 +572,14 @@ async def run_non_interactive(
     # stderr=True routes all console.print() to stderr; agent response text
     # uses _write_text() -> sys.stdout directly.
     console = Console(stderr=True) if quiet else Console()
-    model = create_model(model_name)
+    try:
+        result = create_model(model_name, extra_kwargs=model_params)
+    except ModelConfigError as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        return 1
+
+    model = result.model
+    result.apply_to_settings()
     thread_id = generate_thread_id()
 
     config: RunnableConfig = {
@@ -588,13 +591,11 @@ async def run_non_interactive(
         },
     }
 
-    if quiet:
-        console.print("[dim]Running task non-interactively (quiet mode)...[/dim]")
-    else:
+    if not quiet:
         console.print("[dim]Running task non-interactively...[/dim]")
-    header = _build_non_interactive_header(assistant_id, thread_id)
-    console.print(header)
-    console.print()
+        header = _build_non_interactive_header(assistant_id, thread_id)
+        console.print(header)
+        console.print()
 
     sandbox_backend = None
     exit_stack = contextlib.ExitStack()
@@ -650,7 +651,13 @@ async def run_non_interactive(
             )
 
             await _run_agent_loop(
-                agent, message, config, console, file_op_tracker, quiet=quiet
+                agent,
+                message,
+                config,
+                console,
+                file_op_tracker,
+                quiet=quiet,
+                stream=stream,
             )
             return 0
 
