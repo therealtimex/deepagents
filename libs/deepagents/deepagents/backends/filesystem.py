@@ -129,7 +129,7 @@ class FilesystemBackend(BackendProtocol):
             ValueError: If path traversal is attempted in `virtual_mode` or if the
                 resolved path escapes the root directory.
         """
-        # Normalize path separators for cross-platform compatibility.
+        # Normalize path separators to forward slashes for cross-platform compatibility
         key = key.replace("\\", "/")
 
         if self.virtual_mode:
@@ -165,7 +165,7 @@ class FilesystemBackend(BackendProtocol):
 
         results: list[FileInfo] = []
 
-        # Convert cwd to string for comparison and normalize separators.
+        # Convert cwd to string for comparison, normalize to forward slashes
         cwd_str = str(self.cwd).replace("\\", "/")
         if not cwd_str.endswith("/"):
             cwd_str += "/"
@@ -179,6 +179,7 @@ class FilesystemBackend(BackendProtocol):
                 except OSError:
                     continue
 
+                # Normalize to forward slashes for cross-platform compatibility
                 abs_path = str(child_path).replace("\\", "/")
 
                 if not self.virtual_mode:
@@ -220,6 +221,7 @@ class FilesystemBackend(BackendProtocol):
                         # Path is outside cwd, return as-is or skip
                         relative_path = abs_path
 
+                    # Normalize path separators to forward slashes for cross-platform compatibility
                     relative_path = relative_path.replace("\\", "/")
                     virt_path = "/" + relative_path
 
@@ -581,16 +583,15 @@ class FilesystemBackend(BackendProtocol):
                     except OSError:
                         results.append({"path": abs_path, "is_dir": False})
                 else:
-                    cwd_str = str(self.cwd).replace("\\", "/")
+                    cwd_str = str(self.cwd)
                     if not cwd_str.endswith("/"):
                         cwd_str += "/"
                     if abs_path.startswith(cwd_str):
                         relative_path = abs_path[len(cwd_str) :]
                     elif abs_path.startswith(str(self.cwd)):
-                        relative_path = abs_path[len(str(self.cwd)) :].lstrip("/\\")
+                        relative_path = abs_path[len(str(self.cwd)) :].lstrip("/")
                     else:
                         relative_path = abs_path
-                    relative_path = relative_path.replace("\\", "/")
                     virt = "/" + relative_path
                     try:
                         st = matched_path.stat()
