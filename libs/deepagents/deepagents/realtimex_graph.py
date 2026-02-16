@@ -5,7 +5,10 @@ create_deep_agent but adds the `prompt` parameter alias for backward compatibili
 with RealTimeX downstream projects.
 """
 
+# ruff: noqa: ERA001
+
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import Any
 
 from langchain.agents import create_agent
@@ -160,7 +163,23 @@ def create_realtimex_deep_agent(
     if model is None:
         model = get_default_model()
     elif isinstance(model, str):
-        model = init_chat_model(model)
+        if model.startswith("openai:"):
+            # Use Responses API by default. To use chat completions, use
+            # `model=init_chat_model("openai:...")`
+            # To disable data retention with the Responses API, use
+            # ```
+            # model=init_chat_model(
+            #     "openai:...",
+            #     use_responses_api=True,
+            #     store=False,
+            #     include=["reasoning.encrypted_content"],
+            # )
+            # ```
+            model_init_params: dict = {"use_responses_api": True}
+        else:
+            model_init_params = {}
+
+        model = init_chat_model(model, **model_init_params)
 
     # Compute summarization defaults based on model profile
     summarization_defaults = _compute_summarization_defaults(model)
