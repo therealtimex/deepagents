@@ -41,7 +41,7 @@ from deepagents.middleware.subagents import (
 )
 from deepagents.middleware.summarization import SummarizationMiddleware, _compute_summarization_defaults
 
-BASE_AGENT_PROMPT = "In order to complete the objective that the user asks of you, you have access to a number of standard tools."
+BASE_AGENT_PROMPT = (Path(__file__).parent / "base_prompt.md").read_text()
 
 
 def get_default_model() -> ChatAnthropic:
@@ -184,7 +184,7 @@ def create_realtimex_deep_agent(
     # Compute summarization defaults based on model profile
     summarization_defaults = _compute_summarization_defaults(model)
 
-    backend = backend if backend is not None else (lambda rt: StateBackend(rt))
+    backend = backend if backend is not None else (StateBackend)
 
     # Build general-purpose subagent with default middleware stack
     gp_middleware: list[AgentMiddleware] = [
