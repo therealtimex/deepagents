@@ -31,7 +31,6 @@ from deepagents.backends.protocol import BackendFactory, BackendProtocol
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.memory import MemoryMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
-from deepagents.middleware.shell import ShellMiddleware
 from deepagents.middleware.skills import SkillsMiddleware
 from deepagents.middleware.subagents import (
     GENERAL_PURPOSE_SUBAGENT,
@@ -75,7 +74,6 @@ def create_realtimex_deep_agent(
     debug: bool = False,
     name: str | None = None,
     cache: BaseCache | None = None,
-    enable_shell: bool = True,
 ) -> CompiledStateGraph:
     """Create a RealTimeX deep agent.
 
@@ -152,7 +150,6 @@ def create_realtimex_deep_agent(
         debug: Whether to enable debug mode. Passed through to `create_agent`.
         name: The name of the agent. Passed through to `create_agent`.
         cache: The cache to use for the agent. Passed through to `create_agent`.
-        enable_shell: Whether to enable the local shell tool middleware.
 
     Returns:
         A configured deep agent.
@@ -190,31 +187,17 @@ def create_realtimex_deep_agent(
     gp_middleware: list[AgentMiddleware] = [
         TodoListMiddleware(),
         FilesystemMiddleware(backend=backend),
+        SummarizationMiddleware(
+            model=model,
+            backend=backend,
+            trigger=summarization_defaults["trigger"],
+            keep=summarization_defaults["keep"],
+            trim_tokens_to_summarize=None,
+            truncate_args_settings=summarization_defaults["truncate_args_settings"],
+        ),
+        AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
+        PatchToolCallsMiddleware(),
     ]
-
-    # Add ShellMiddleware if enabled (RealTimeX specific)
-    if enable_shell:
-        gp_middleware.append(
-            ShellMiddleware(
-                backend=backend,
-                virtual_path_prefixes=skills or [],
-            )
-        )
-
-    gp_middleware.extend(
-        [
-            SummarizationMiddleware(
-                model=model,
-                backend=backend,
-                trigger=summarization_defaults["trigger"],
-                keep=summarization_defaults["keep"],
-                trim_tokens_to_summarize=None,
-                truncate_args_settings=summarization_defaults["truncate_args_settings"],
-            ),
-            AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
-            PatchToolCallsMiddleware(),
-        ]
-    )
     if skills is not None:
         gp_middleware.append(SkillsMiddleware(backend=backend, sources=skills))
     if interrupt_on is not None:
@@ -244,33 +227,18 @@ def create_realtimex_deep_agent(
             subagent_middleware: list[AgentMiddleware] = [
                 TodoListMiddleware(),
                 FilesystemMiddleware(backend=backend),
+                SummarizationMiddleware(
+                    model=subagent_model,
+                    backend=backend,
+                    trigger=subagent_summarization_defaults["trigger"],
+                    keep=subagent_summarization_defaults["keep"],
+                    trim_tokens_to_summarize=None,
+                    truncate_args_settings=subagent_summarization_defaults["truncate_args_settings"],
+                ),
+                AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
+                PatchToolCallsMiddleware(),
             ]
-
             subagent_skills = spec.get("skills")
-
-            # Add ShellMiddleware to subagents if enabled (RealTimeX specific)
-            if enable_shell:
-                subagent_middleware.append(
-                    ShellMiddleware(
-                        backend=backend,
-                        virtual_path_prefixes=subagent_skills or [],
-                    )
-                )
-
-            subagent_middleware.extend(
-                [
-                    SummarizationMiddleware(
-                        model=subagent_model,
-                        backend=backend,
-                        trigger=subagent_summarization_defaults["trigger"],
-                        keep=subagent_summarization_defaults["keep"],
-                        trim_tokens_to_summarize=None,
-                        truncate_args_settings=subagent_summarization_defaults["truncate_args_settings"],
-                    ),
-                    AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
-                    PatchToolCallsMiddleware(),
-                ]
-            )
             if subagent_skills:
                 subagent_middleware.append(SkillsMiddleware(backend=backend, sources=subagent_skills))
             subagent_middleware.extend(spec.get("middleware", []))
@@ -294,20 +262,9 @@ def create_realtimex_deep_agent(
         deepagent_middleware.append(MemoryMiddleware(backend=backend, sources=memory))
     if skills is not None:
         deepagent_middleware.append(SkillsMiddleware(backend=backend, sources=skills))
-
-    deepagent_middleware.append(FilesystemMiddleware(backend=backend))
-
-    # Add ShellMiddleware to main agent if enabled (RealTimeX specific)
-    if enable_shell:
-        deepagent_middleware.append(
-            ShellMiddleware(
-                backend=backend,
-                virtual_path_prefixes=skills or [],
-            )
-        )
-
     deepagent_middleware.extend(
         [
+            FilesystemMiddleware(backend=backend),
             SubAgentMiddleware(
                 backend=backend,
                 subagents=all_subagents,
