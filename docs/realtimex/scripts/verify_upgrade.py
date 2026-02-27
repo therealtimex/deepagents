@@ -59,6 +59,14 @@ def require_contains(path: Path, needle: str, label: str) -> str | None:
     return None
 
 
+def require_not_contains(path: Path, needle: str, label: str) -> str | None:
+    """Validate that a file does not contain a forbidden string."""
+    content = path.read_text(encoding="utf-8")
+    if needle in content:
+        return f"{label}: forbidden `{needle}` found in {path}"
+    return None
+
+
 def verify(base_ref: str, target_ref: str) -> list[str]:
     """Run all upgrade invariant checks and return error list."""
     errors: list[str] = []
@@ -66,14 +74,18 @@ def verify(base_ref: str, target_ref: str) -> list[str]:
     diff_output = run_git(["diff", "--name-status", f"{base_ref}..{target_ref}"])
     changed_paths = parse_name_status(diff_output)
 
-    non_deepagents = sorted(path for path in changed_paths if not path.startswith("libs/deepagents/"))
+    non_deepagents = sorted(
+        path for path in changed_paths if not path.startswith("libs/deepagents/")
+    )
     if non_deepagents:
         errors.append(
             "Non-deepagents drift detected versus upstream:\n"
             + "\n".join(f"  - {path}" for path in non_deepagents)
         )
 
-    deepagents_changed = {path for path in changed_paths if path.startswith("libs/deepagents/")}
+    deepagents_changed = {
+        path for path in changed_paths if path.startswith("libs/deepagents/")
+    }
     if deepagents_changed != EXPECTED_DEEPAGENTS_DIFF:
         missing = sorted(EXPECTED_DEEPAGENTS_DIFF - deepagents_changed)
         unexpected = sorted(deepagents_changed - EXPECTED_DEEPAGENTS_DIFF)
@@ -100,27 +112,37 @@ def verify(base_ref: str, target_ref: str) -> list[str]:
     realtime_graph_needles = (
         "def create_realtimex_deep_agent(",
         "prompt: str | None = None",
-        "enable_shell: bool = True",
-        "ShellMiddleware(",
     )
     for needle in realtime_graph_needles:
         err = require_contains(realtime_graph, needle, "RealTimeX graph invariant")
         if err:
             errors.append(err)
 
+    err = require_not_contains(
+        realtime_graph,
+        "ShellMiddleware(",
+        "RealTimeX graph invariant",
+    )
+    if err:
+        errors.append(err)
+
     middleware_needles = (
         "from deepagents.middleware.shell import ShellMiddleware",
         '"ShellMiddleware"',
     )
     for needle in middleware_needles:
-        err = require_contains(middleware_init, needle, "Shell middleware export invariant")
+        err = require_contains(
+            middleware_init, needle, "Shell middleware export invariant"
+        )
         if err:
             errors.append(err)
 
     composite = Path("libs/deepagents/deepagents/backends/composite.py")
     filesystem = Path("libs/deepagents/deepagents/backends/filesystem.py")
     for path in (composite, filesystem):
-        err = require_contains(path, 'replace("\\\\", "/")', "Cross-platform path invariant")
+        err = require_contains(
+            path, 'replace("\\\\", "/")', "Cross-platform path invariant"
+        )
         if err:
             errors.append(err)
 
@@ -130,7 +152,9 @@ def verify(base_ref: str, target_ref: str) -> list[str]:
 def main() -> int:
     """CLI entrypoint."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base-ref", default="origin/main", help="Baseline ref to compare against.")
+    parser.add_argument(
+        "--base-ref", default="origin/main", help="Baseline ref to compare against."
+    )
     parser.add_argument("--target-ref", default="HEAD", help="Target ref to validate.")
     args = parser.parse_args()
 
