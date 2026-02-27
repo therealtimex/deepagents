@@ -53,7 +53,7 @@ Use this section as the authoritative long-term reference for what must be prese
 | `libs/deepagents/deepagents/__init__.py` | Export `create_realtimex_deep_agent`. | Provide stable import surface for RealTimeX callers. |
 | `libs/deepagents/deepagents/middleware/__init__.py` | Export `ShellMiddleware`. | Keep middleware discoverable through package-level imports. |
 | `libs/deepagents/deepagents/middleware/shell.py` | RealTimeX shell middleware implementation and prompt/tool behavior. | Add shell execution workflow required by RealTimeX runtime behavior. |
-| `libs/deepagents/deepagents/realtimex_graph.py` | RealTimeX graph wrapper aligned with upstream `graph.py`, plus `prompt` alias and shell middleware integration (`enable_shell`). | Preserve RealTimeX API compatibility while inheriting upstream graph improvements. |
+| `libs/deepagents/deepagents/realtimex_graph.py` | RealTimeX graph wrapper aligned with upstream `graph.py`, plus `prompt` alias for backward compatibility. | Preserve RealTimeX API compatibility while inheriting upstream graph improvements. |
 | `libs/deepagents/deepagents/backends/composite.py` | Cross-platform path normalization (`\\` to `/`) where routing/listing compares paths. | Prevent Windows/macOS path separator mismatches. |
 | `libs/deepagents/deepagents/backends/filesystem.py` | Cross-platform path normalization and safe virtual path handling parity for separator variants. | Ensure deterministic behavior across OSes and avoid path parsing regressions. |
 | `libs/deepagents/pyproject.toml` | Package name set to `realtimex-deepagents`. | Preserve RealTimeX distribution identity and downstream dependency expectations. |
@@ -140,7 +140,6 @@ This prevents discarding valid upstream fixes while preserving required custom l
 - Preserve RealTimeX-only extensions:
   - function name `create_realtimex_deep_agent`
   - `prompt` alias
-  - shell middleware wiring
 - Keep upstream evolution (model init behavior, prompt loading, middleware ordering updates unless intentionally overridden).
 
 ### C. Backends (`composite.py`, `filesystem.py`)
@@ -168,7 +167,7 @@ Expected: only canonical customization set.
 ### 3. Invariant checks
 ```bash
 rg -n '^name = "realtimex-deepagents"' libs/deepagents/pyproject.toml libs/deepagents/uv.lock
-rg -n "create_realtimex_deep_agent|prompt: str \| None|enable_shell|ShellMiddleware" libs/deepagents/deepagents/realtimex_graph.py
+rg -n "create_realtimex_deep_agent|prompt: str \| None" libs/deepagents/deepagents/realtimex_graph.py
 rg -n 'replace\("\\\\", "/"\)' libs/deepagents/deepagents/backends/composite.py libs/deepagents/deepagents/backends/filesystem.py
 ```
 
