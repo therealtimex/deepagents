@@ -106,7 +106,10 @@ def create_realtimex_deep_agent(
             prompt.
 
             If a string, it's concatenated with the base prompt.
-        prompt: Alias for system_prompt (RealTimeX backward compatibility).
+        prompt: Alias used by RealTimeX A2A caller for backward compatibility.
+
+            When `prompt` is provided, it is treated as the final system prompt text
+            (the Deep Agents base prompt is not appended again).
         middleware: Additional middleware to apply after the standard middleware stack
             (`TodoListMiddleware`, `FilesystemMiddleware`, `SubAgentMiddleware`,
             `SummarizationMiddleware`, `AnthropicPromptCachingMiddleware`,
@@ -154,7 +157,10 @@ def create_realtimex_deep_agent(
     Returns:
         A configured deep agent.
     """
-    # RealTimeX backward compatibility: accept `prompt` as alias for `system_prompt`
+    # RealTimeX backward compatibility: accept `prompt` as alias for `system_prompt`.
+    # RealTimeX A2A callers pass `prompt`; when present, it is treated as final prompt
+    # text and we do not append BASE_AGENT_PROMPT again.
+    realtimex_prompt_supplied = prompt is not None
     system_prompt = system_prompt if system_prompt is not None else prompt
 
     if model is None:
@@ -289,6 +295,8 @@ def create_realtimex_deep_agent(
     # Combine system_prompt with BASE_AGENT_PROMPT
     if system_prompt is None:
         final_system_prompt: str | SystemMessage = BASE_AGENT_PROMPT
+    elif realtimex_prompt_supplied:
+        final_system_prompt = system_prompt
     elif isinstance(system_prompt, SystemMessage):
         # SystemMessage: append BASE_AGENT_PROMPT to content_blocks
         new_content = [
