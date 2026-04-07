@@ -1,224 +1,191 @@
 # RealTimeX Upgrade Playbook
 
-## Purpose
-Define a production-grade, repeatable process to upgrade this fork to the latest upstream `main` while preserving intentional RealTimeX behavior.
+Repeatable process to upgrade this fork to the latest upstream `main` while preserving RealTimeX customizations.
 
-## Scope
-This playbook covers:
-- Branch preparation and upgrade workflow
-- Conflict resolution strategy when upstream and RealTimeX modify the same files
-- Rules for customization preservation
-- Verification required before merge
+## Branch Model
 
-This playbook does not depend on personal/local folders or ad-hoc scripts.
+| Branch | Role |
+|---|---|
+| `main` | Synced upstream baseline |
+| `realtimex` | Long-lived RealTimeX branch |
+| `realtimex-upgrade-<version>` | Short-lived upgrade branch (created per upgrade) |
 
-## Audience
-Human engineers and AI agents with no prior repository context.
+## Customization Scope
 
-## Repository Model
+All RealTimeX changes live under `libs/deepagents/`. After a successful upgrade, **only** these files should differ from `origin/main`:
 
-### Branches
-- `main`: synced upstream baseline
-- `realtimex`: long-lived RealTimeX branch
-- `realtimex-upgrade-<version>`: short-lived upgrade branch
+| File (relative to `libs/deepagents/`) | Customization |
+|---|---|
+| `deepagents/__init__.py` | Exports `create_realtimex_deep_agent` |
+| `deepagents/realtimex_graph.py` | RealTimeX agent factory with `prompt` alias |
+| `deepagents/backends/composite.py` | Cross-platform path normalization (`\` → `/`) |
+| `deepagents/backends/filesystem.py` | Cross-platform path normalization (`\` → `/`) |
+| `pyproject.toml` | Package name: `realtimex-deepagents` |
+| `uv.lock` | Package name: `realtimex-deepagents` |
 
-### Primary customization package
-- `libs/deepagents/`
+### Invariants
 
-## Canonical RealTimeX Customization Set
+These must hold after every upgrade:
 
-After a successful upgrade, only these files should differ from `origin/main`:
+1. `name = "realtimex-deepagents"` in both `pyproject.toml` and `uv.lock`
+2. `create_realtimex_deep_agent` exists with `prompt: str | None = None` parameter
+3. `replace("\\", "/")` appears in both `composite.py` and `filesystem.py`
 
-- `libs/deepagents/deepagents/__init__.py`
-- `libs/deepagents/deepagents/backends/composite.py`
-- `libs/deepagents/deepagents/backends/filesystem.py`
-- `libs/deepagents/deepagents/middleware/__init__.py`
-- `libs/deepagents/deepagents/middleware/shell.py`
-- `libs/deepagents/deepagents/realtimex_graph.py`
-- `libs/deepagents/pyproject.toml`
-- `libs/deepagents/uv.lock`
-
-Required invariants:
-- package name is `realtimex-deepagents` in both `pyproject.toml` and `uv.lock`
-- `create_realtimex_deep_agent` exists and stays aligned with upstream `graph.py` behavior except intentional RealTimeX deltas
-- Shell middleware support is preserved
-- cross-platform path normalization patches are preserved in `composite.py` and `filesystem.py`
-
-## Canonical Customization Reference
-
-Use this section as the authoritative long-term reference for what must be preserved and why.
-
-| File | Intended RealTimeX Modification | Rationale |
-|---|---|---|
-| `libs/deepagents/deepagents/__init__.py` | Export `create_realtimex_deep_agent`. | Provide stable import surface for RealTimeX callers. |
-| `libs/deepagents/deepagents/middleware/__init__.py` | Export `ShellMiddleware`. | Keep middleware discoverable through package-level imports. |
-| `libs/deepagents/deepagents/middleware/shell.py` | RealTimeX shell middleware implementation and prompt/tool behavior. | Add shell execution workflow required by RealTimeX runtime behavior. |
-| `libs/deepagents/deepagents/realtimex_graph.py` | RealTimeX graph wrapper aligned with upstream `graph.py`, plus `prompt` alias for backward compatibility. | Preserve RealTimeX API compatibility while inheriting upstream graph improvements. |
-| `libs/deepagents/deepagents/backends/composite.py` | Cross-platform path normalization (`\\` to `/`) where routing/listing compares paths. | Prevent Windows/macOS path separator mismatches. |
-| `libs/deepagents/deepagents/backends/filesystem.py` | Cross-platform path normalization and safe virtual path handling parity for separator variants. | Ensure deterministic behavior across OSes and avoid path parsing regressions. |
-| `libs/deepagents/pyproject.toml` | Package name set to `realtimex-deepagents`. | Preserve RealTimeX distribution identity and downstream dependency expectations. |
-| `libs/deepagents/uv.lock` | Locked package entry name set to `realtimex-deepagents`, consistent with `pyproject.toml`. | Keep lock metadata consistent with package identity and avoid packaging drift. |
+---
 
 ## Prerequisites
 
 ```bash
 git fetch origin --prune
 git switch realtimex
-git status --short --branch
+git status --short --branch   # Must be clean
 ```
 
-Ensure working tree is clean before starting upgrade work.
-
-## Upgrade Procedure
+## Procedure
 
 ### 1. Create upgrade branch
+
 ```bash
 git switch -c realtimex-upgrade-<version> realtimex
 ```
 
-### 2. Merge upstream into upgrade branch
+### 2. Merge upstream (no commit yet)
+
 ```bash
 git merge --no-ff --no-commit main
 ```
 
-Do not commit yet.
-
 ### 3. Establish upstream baseline
-Resolve conflicts and set baseline to upstream state first:
+
+Resolve all conflicts to upstream state first:
+
 ```bash
 git checkout --theirs .
 git add -A
-git diff --name-only --diff-filter=U
+git diff --name-only --diff-filter=U   # Expected: empty
 ```
-Expected: no output.
 
-Optional hard reset of tracked content to upstream baseline:
+Optionally hard-reset tracked content to upstream:
+
 ```bash
 git checkout origin/main -- .
 ```
 
-Still do not commit yet.
+Do **not** commit yet.
 
-## Conflict Resolution and Customization Strategy (Critical)
+### 4. Reapply customizations via 3-way review
 
-Do not blindly restore full files from `realtimex` for customized paths when upstream also changed those files.
+For each customized file, compare three versions:
 
-For each customized file, perform a 3-way review:
-- `base`: common ancestor of `realtimex` and `origin/main`
-- `upstream`: current `origin/main`
-- `realtimex`: current `realtimex`
-
-Get base commit:
 ```bash
 BASE="$(git merge-base realtimex origin/main)"
-echo "$BASE"
-```
 
-Review one file example:
-```bash
+# Example for one file:
 git show "$BASE":libs/deepagents/deepagents/backends/filesystem.py > /tmp/base.py
 git show origin/main:libs/deepagents/deepagents/backends/filesystem.py > /tmp/upstream.py
 git show realtimex:libs/deepagents/deepagents/backends/filesystem.py > /tmp/realtimex.py
 diff -u /tmp/upstream.py /tmp/realtimex.py
 ```
 
-Decision rule per hunk:
-- If hunk is upstream improvement with no RealTimeX intent: keep upstream.
-- If hunk is pure RealTimeX behavior: reapply onto upstream.
-- If hunk overlaps: manually integrate both (upstream semantics + RealTimeX requirement).
+**Decision per hunk:**
 
-This prevents discarding valid upstream fixes while preserving required custom logic.
+| Hunk type | Action |
+|---|---|
+| Upstream improvement, no RealTimeX intent | Keep upstream |
+| Pure RealTimeX behavior | Reapply onto upstream |
+| Overlap (both sides changed) | Manually integrate both |
 
-## Reapply Rules by File Type
+### Reapply rules by file
 
-### A. API/export glue
-- `__init__.py`, `middleware/__init__.py`
-- keep upstream exports, add RealTimeX exports (`create_realtimex_deep_agent`, `ShellMiddleware`) only.
+**`realtimex_graph.py`** — This file is a copy of upstream `graph.py` with one addition: the `prompt` parameter alias. Upgrade procedure:
 
-### B. `realtimex_graph.py`
-- Start from upstream `graph.py` behavior.
-- Preserve RealTimeX-only extensions:
-  - function name `create_realtimex_deep_agent`
-  - `prompt` alias
-- Keep upstream evolution (model init behavior, prompt loading, middleware ordering updates unless intentionally overridden).
+1. Copy the new upstream `graph.py` over `realtimex_graph.py`.
+2. Rename the function from `create_deep_agent` to `create_realtimex_deep_agent`.
+3. Add parameter `prompt: str | None = None` (keyword-only).
+4. Apply the `prompt` alias behavioral contract:
+   - When `prompt` is provided and `system_prompt` is not: use `prompt` as the **final** system prompt. Do **not** append `BASE_AGENT_PROMPT`.
+   - When `system_prompt` is provided: behavior is identical to upstream (base prompt is appended).
+   - When neither is provided: behavior is identical to upstream (base prompt only).
+5. Update the module docstring and function docstring to reflect the RealTimeX function name and the `prompt` parameter.
 
-### C. Backends (`composite.py`, `filesystem.py`)
-- Keep upstream logic and security fixes.
-- Reapply only RealTimeX cross-platform compatibility patches.
+**`__init__.py`** — Keep upstream exports. Add `create_realtimex_deep_agent` import and `__all__` entry.
 
-### D. Packaging (`pyproject.toml`, `uv.lock`)
-- Keep upstream dependency ecosystem unless intentionally changed.
-- Enforce package rename consistency: `realtimex-deepagents`.
+**Backends** (`composite.py`, `filesystem.py`) — Keep upstream logic. Reapply cross-platform path normalization: `replace("\\", "/")` on path strings before comparison/routing.
 
-## Verification Checklist (Required Before Commit)
+**Packaging** (`pyproject.toml`, `uv.lock`) — Keep upstream dependencies. Set `name = "realtimex-deepagents"`.
 
-### 1. Global upstream alignment outside deepagents
+---
+
+## Verification
+
+### Automated
+
+```bash
+python3 docs/realtimex/scripts/verify_upgrade.py
+```
+
+### Manual checklist
+
+**1. No drift outside deepagents:**
 ```bash
 git diff --name-status origin/main..HEAD -- . ':(exclude)libs/deepagents/**'
 ```
-Expected: empty output.
+Expected: empty.
 
-### 2. Customization scope check
+**2. Customization scope:**
 ```bash
 git diff --name-status origin/main..HEAD -- libs/deepagents
 ```
-Expected: only canonical customization set.
+Expected: only files listed in [Customization Scope](#customization-scope).
 
-### 3. Invariant checks
+**3. Invariant checks:**
 ```bash
 rg -n '^name = "realtimex-deepagents"' libs/deepagents/pyproject.toml libs/deepagents/uv.lock
 rg -n "create_realtimex_deep_agent|prompt: str \| None" libs/deepagents/deepagents/realtimex_graph.py
 rg -n 'replace\("\\\\", "/"\)' libs/deepagents/deepagents/backends/composite.py libs/deepagents/deepagents/backends/filesystem.py
 ```
 
-### 4. Syntax sanity
+**4. Syntax check:**
 ```bash
-python3 -m py_compile \
-  libs/deepagents/deepagents/realtimex_graph.py \
-  libs/deepagents/deepagents/middleware/shell.py
+python3 -m py_compile libs/deepagents/deepagents/realtimex_graph.py
 ```
 
-### 5. Project validation
-Run project-standard quality gates (minimum required by your team policy), for example:
+**5. Project quality gates:**
 ```bash
 make lint
 make test
 ```
 
-## Commit and Review
+---
+
+## Commit and PR
 
 Commit only after all checks pass:
+
 ```bash
 git add -A
 git commit -m "chore(realtimex): upgrade from upstream <version> with preserved customizations"
 ```
 
 PR review must include:
-- why each remaining diff from `origin/main` is intentional
-- evidence that overlapping hunks were integrated (not overwritten)
-- verification output summary
+- Rationale for each remaining diff from `origin/main`
+- Evidence that overlapping hunks were integrated (not overwritten)
+- Verification output summary
+
+---
 
 ## Troubleshooting
 
-### Too many unexpected diffs
-Re-establish baseline:
-```bash
-git checkout origin/main -- .
-```
-Then reapply customizations using 3-way review.
-
-### Customized file lost upstream behavior
-Re-run 3-way comparison for that file using `BASE`, `origin/main`, and `realtimex`, then re-integrate manually.
-
-### Package name mismatch
-Fix both:
-- `libs/deepagents/pyproject.toml`
-- `libs/deepagents/uv.lock`
+| Problem | Fix |
+|---|---|
+| Too many unexpected diffs | Re-establish baseline: `git checkout origin/main -- .`, then reapply customizations |
+| Customized file lost upstream behavior | Re-run 3-way comparison for that file, re-integrate manually |
+| Package name mismatch | Fix both `pyproject.toml` and `uv.lock` |
 
 ## Completion Criteria
-Upgrade is complete when all are true:
-1. Upstream alignment outside `libs/deepagents` is exact.
-2. `libs/deepagents` diff matches canonical RealTimeX customization set.
-3. RealTimeX invariants are satisfied.
-4. Project validation gates pass.
-5. Changes are committed and reviewable with clear rationale.
+
+1. Upstream alignment outside `libs/deepagents` is exact
+2. `libs/deepagents` diff matches customization scope
+3. All invariants hold
+4. Quality gates pass
+5. Changes are committed with clear rationale

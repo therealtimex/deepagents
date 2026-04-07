@@ -12,8 +12,6 @@ EXPECTED_DEEPAGENTS_DIFF = {
     "libs/deepagents/deepagents/__init__.py",
     "libs/deepagents/deepagents/backends/composite.py",
     "libs/deepagents/deepagents/backends/filesystem.py",
-    "libs/deepagents/deepagents/middleware/__init__.py",
-    "libs/deepagents/deepagents/middleware/shell.py",
     "libs/deepagents/deepagents/realtimex_graph.py",
     "libs/deepagents/pyproject.toml",
     "libs/deepagents/uv.lock",
@@ -59,14 +57,6 @@ def require_contains(path: Path, needle: str, label: str) -> str | None:
     return None
 
 
-def require_not_contains(path: Path, needle: str, label: str) -> str | None:
-    """Validate that a file does not contain a forbidden string."""
-    content = path.read_text(encoding="utf-8")
-    if needle in content:
-        return f"{label}: forbidden `{needle}` found in {path}"
-    return None
-
-
 def verify(base_ref: str, target_ref: str) -> list[str]:
     """Run all upgrade invariant checks and return error list."""
     errors: list[str] = []
@@ -107,7 +97,6 @@ def verify(base_ref: str, target_ref: str) -> list[str]:
             errors.append(err)
 
     realtime_graph = Path("libs/deepagents/deepagents/realtimex_graph.py")
-    middleware_init = Path("libs/deepagents/deepagents/middleware/__init__.py")
 
     realtime_graph_needles = (
         "def create_realtimex_deep_agent(",
@@ -115,25 +104,6 @@ def verify(base_ref: str, target_ref: str) -> list[str]:
     )
     for needle in realtime_graph_needles:
         err = require_contains(realtime_graph, needle, "RealTimeX graph invariant")
-        if err:
-            errors.append(err)
-
-    err = require_not_contains(
-        realtime_graph,
-        "ShellMiddleware(",
-        "RealTimeX graph invariant",
-    )
-    if err:
-        errors.append(err)
-
-    middleware_needles = (
-        "from deepagents.middleware.shell import ShellMiddleware",
-        '"ShellMiddleware"',
-    )
-    for needle in middleware_needles:
-        err = require_contains(
-            middleware_init, needle, "Shell middleware export invariant"
-        )
         if err:
             errors.append(err)
 
